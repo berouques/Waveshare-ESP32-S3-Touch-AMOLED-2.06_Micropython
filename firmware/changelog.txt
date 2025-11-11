@@ -1,6 +1,15 @@
+firmware_2025_11_11.bin
+
+MicroPython Version :  MicroPython v1.26.1
+ESP-IDF Version : 5.4.1
+BOARD : ESP32S3 microcontroller with 16MB of Flash & Octal-SPIRAM with ESP32S3
+
+===============================================================================
+
+
 firmware_2025_07_17.bin & firmware_2025_07_25.bin & firmware_2025_07_31.bin
 
-MicroPython Version :  MicroPython v1.25.0-dirty on 2025-07-17 (resp. 2025-07-25)
+MicroPython Version :  MicroPython v1.25.0
 ESP-IDF Version : 5.4.1
 BOARD : ESP32S3 microcontroller with 16MB of Flash & Octal-SPIRAM with ESP32S3
 
@@ -8,7 +17,7 @@ BOARD : ESP32S3 microcontroller with 16MB of Flash & Octal-SPIRAM with ESP32S3
 
 firmware_2025_05_08.bin
 
-MicroPython Version :  MicroPython v1.25.0-dirty on 2025-05-08
+MicroPython Version :  MicroPython v1.25.0
 ESP-IDF Version : 5.4.1
 BOARD : ESP32S3 microcontroller with 16MB of Flash & Octal-SPIRAM with ESP32S3
 
@@ -16,7 +25,7 @@ BOARD : ESP32S3 microcontroller with 16MB of Flash & Octal-SPIRAM with ESP32S3
 
 firmware_2025_02_15.bin
 
-MicroPython Version : v1.25.0-preview.180.g495ce91ca.dirty on 2025-02-15
+MicroPython Version : v1.25.0
 ESP-IDF Version : 5.3.2
 BOARD : ESP32S3 microcontroller with 16MB of Flash & Octal-SPIRAM with ESP32S3
 
@@ -24,7 +33,7 @@ BOARD : ESP32S3 microcontroller with 16MB of Flash & Octal-SPIRAM with ESP32S3
 
 firmware_2024_12_28.bin
 
-MicroPython Version : v1.25.0-preview.160.gc73204128.dirty on 2024-12-28
+MicroPython Version : v1.25.0
 ESP-IDF Version : 5.3.2
 BOARD : ESP32S3 microcontroller with 16MB of Flash & Octal-SPIRAM with ESP32S3
 
@@ -32,6 +41,7 @@ BOARD : ESP32S3 microcontroller with 16MB of Flash & Octal-SPIRAM with ESP32S3
 
 firmware_2024_12_23.bin
 
-MicroPython Version : v1.25.0-preview.160.gc73204128.dirty on 2024-12-23
+MicroPython Version : v1.25.0
 ESP-IDF Version : 5.2.3
 BOARD : ESP32S3 microcontroller with 16MB of Flash & Octal-SPIRAM with ESP32S3
+
