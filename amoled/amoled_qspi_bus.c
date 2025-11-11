@@ -53,7 +53,7 @@ void hal_lcd_qspi_panel_construct(mp_obj_base_t *self)
     };
     esp_err_t ret = spi_bus_initialize(spi_obj->host, &buscfg, SPI_DMA_CH_AUTO);
     if (ret != 0) {
-        mp_raise_msg_varg(&mp_type_OSError, "%d(spi_bus_initialize)", ret);
+        mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("%d(spi_bus_initialize)"), ret);
     }
     spi_obj->state = MACHINE_HW_SPI_STATE_INIT;
 
@@ -69,7 +69,7 @@ void hal_lcd_qspi_panel_construct(mp_obj_base_t *self)
 
     ret = spi_bus_add_device(spi_obj->host, &devcfg, &spi_obj->spi);
     if (ret != 0) {
-        mp_raise_msg_varg(&mp_type_OSError, "%d(spi_bus_add_device)", ret);
+        mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("%d(spi_bus_add_device)"), ret);
     }
 }
 
