@@ -313,11 +313,11 @@ The instruction below are working with ESP-IDF v5.4.1 and Micropython 1.25.
 Please note that for now, compilation crashes with Micropython 1.26_preview
 ```Shell
 cd ~
-git clone https://github.com/dobodu/Lilygo-Amoled-Micropython.git
+git clone https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython.git
 
 # to the micropython directory
 cd micropython/port/esp32
-make  BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=FLASH_16M_SPIRAM_OCT USER_C_MODULES=~/Lilygo-Amoled-Micropython CFLAGS_EXTRA=-DMODULE_AMOLED_ENABLED=1
+make  BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=FLASH_16M_SPIRAM_OCT USER_C_MODULES=~/Lilygo_Waveshare_Amoled_Micropython CFLAGS_EXTRA=-DMODULE_AMOLED_ENABLED=1
 ```
 You may also want to modify the `sdkconfig` before building in case to get the 16MB storage.
 ```Shell
@@ -348,4 +348,5 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
 
