@@ -339,6 +339,7 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-16MiB.csv"
 ```
 
 Or simply copy the files provides in the directory ESP32_GENERIC_S3 to you micropython ports/esp32/boards/ESP32_GENERIC_S3
+and to ports/esp32 (partitions-16MiB.csv).
 
 
 If the esp_lcd related functions are missing, do the following:
@@ -352,6 +353,7 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
 
 
 
