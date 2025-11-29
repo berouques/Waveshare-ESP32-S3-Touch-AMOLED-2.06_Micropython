@@ -7,7 +7,7 @@ extern "C" {
 
 #include "py/obj.h"
 #include "mpfile/mpfile.h"
-
+#include "schrift/schrift.h"
 #include "amoled_qspi_bus.h"
 
 #define LCD_CMD_NOP          0x00 // This command is empty command
@@ -82,20 +82,21 @@ extern "C" {
 #define LCD_FAC_SWIRE2		0x5B // SWIRE
 
 //SH8601, RM690B0 and RM67162 MADCTRL and RGB
-#define MADCTL_MY		0x80 // D7  = 1 Row address decreasing vertically
-#define MADCTL_MX		0x40 // D6 = 1 Column adress decreasing horizontal
-#define MADCTL_MV		0x20 // D5 = 1 Row - Column exchange
-#define MADCTL_ML		0x10 // D4 = 1 Vertical Refresh Order Bottom to Top
-#define MADCTL_BGR		0x08 // D3 = 1 for BGR (0 for RGB)
-#define MADCTL_MH		0x04 // D2 = RESERVED
-#define MADCTL_RSMX		0x02 // D1 = 1 Flip horizontally
-#define MADCTL_RSMY		0x01 // D0 = 1 Flip vertically
-#define MADCTL_DEFAULT	0x00
+#define MADCTL_MY			0x80 // D7  = 1 Row address decreasing vertically
+#define MADCTL_MX			0x40 // D6 = 1 Column adress decreasing horizontal
+#define MADCTL_MV			0x20 // D5 = 1 Row - Column exchange
+#define MADCTL_ML			0x10 // D4 = 1 Vertical Refresh Order Bottom to Top
+#define MADCTL_BGR			0x08 // D3 = 1 for BGR (0 for RGB)
+#define MADCTL_MH			0x04 // D2 = RESERVED
+#define MADCTL_RSMX			0x02 // D1 = 1 Flip horizontally
+#define MADCTL_RSMY			0x01 // D0 = 1 Flip vertically
+#define MADCTL_DEFAULT		0x00
 
 // BPP Colmod 
-#define COLMOD_CAL_16   0x55
-#define COLMOD_CAL_18   0x66
-#define COLMOD_CAL_24   0x77
+#define COLMOD_CAL_16   	0x55
+#define COLMOD_CAL_18   	0x66
+#define COLMOD_CAL_24   	0x77
+
 
 // Color definitions
 
@@ -136,8 +137,8 @@ typedef struct _amoled_AMOLED_obj_t {
     amoled_panel_p_t *lcd_panel_p;
     mp_obj_t reset;
 	mp_file_t *fp;              //File object
+	bool reset_level;
 	uint16_t *pixel_buffer;		// resident buffer if buffer_size given
-    bool reset_level;
     uint8_t color_space;
 	
 	// m_malloc'd pointers
@@ -153,12 +154,13 @@ typedef struct _amoled_AMOLED_obj_t {
     uint16_t height;
     uint16_t max_width_value;
     uint16_t max_height_value;
+	uint16_t x_gap;
+    uint16_t y_gap;
+	
+	amoled_rotation_t rotations[4];   // list of rotation tuples
     uint8_t rotation;
-    amoled_rotation_t rotations[4];   // list of rotation tuples
-    int x_gap;
-    int y_gap;
 	uint8_t type;
-    uint32_t bpp;
+    uint8_t bpp;
     uint8_t fb_bpp;
     uint8_t madctl_val; // save current value of LCD_CMD_MADCTL register
     uint8_t colmod_cal; // save surrent value of LCD_CMD_COLMOD register
@@ -166,12 +168,11 @@ typedef struct _amoled_AMOLED_obj_t {
 	//Frame Buffer related
     bool auto_refresh;
 	bool hold_display;
-	// frame_buffer is the whole display frame buffer
-    size_t frame_buffer_size;
     uint16_t *frame_buffer;
-	// partial_frame_buffer is a temporary frame buffer
-	size_t partial_frame_buffer_size;
-	uint16_t *partial_frame_buffer;  
+	uint16_t *partial_frame_buffer;
+	
+	//TTF Font support
+	SFT sft;
 	
 } amoled_AMOLED_obj_t;
 
