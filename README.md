@@ -1,7 +1,11 @@
+
 ## Lilygo and Waveshare Amoled Series Micropython firmware with Graphic Support (this is not LVGL)
 --------------------------------------------------------------------------------------------------
 
-It's dedicated to
+## /!\ NOW WORKS WITH TRUETYPE FONTS /!\ 
+
+
+This graphic library is dedicated to :
 
 - Lilygo T4-S3 AMOLED
 - Lilygo T-Display S3 AMOLED
@@ -13,6 +17,8 @@ It's dedicated to
 This Micropython driver is created on behalf of [nspsck](https://github.com/nspsck/RM67162_Micropython_QSPI) RM67162 driver.
 It is also convergent with [russhugues](https://github.com/russhughes/st7789_mpy) ST7789 driver.
 I also would like to thanks [lewisxhe](https://github.com/Xinyuan-LilyGO/LilyGo-AMOLED-Series). Your advices helped me a lot.
+Finally, I must talk of [tomolt](https://github.com/tomolt/libschrift). The libschrift TTF lightweight library truelly rocks !
+
 
 My main goal was to adapt a driver library that would give the same functions thant ST7789 driver, in order to
 be able to get my micropythons projects working whether on PICO + ST7789 or ESP32 + RM690B0 or ESP32 + RM67162
@@ -22,8 +28,8 @@ The driver involves a frame buffer of 536x240, requiring 280ko of available ram 
 In a more general way, requirements are WIDTH x HEIGHT x 2 bytes or ram.
 
 Latest firmware is build with
-- Micropython 1.25
-- ESP IDF toolchain 5.4.1
+- Micropython 1.26.1
+- ESP IDF toolchain 5.5.2
 
 
 Contents:
@@ -109,7 +115,7 @@ Demonstration Video :
 
 Given exemple is working on the Waveshare ESP32-S3 AMOLED 2.41"
 
-Beware, sometime the display needs to be awaken by a specific pin (EXI01 AMOLED_EN for this specific device)
+Beware, sometime the display needs to be awaken by a specific pin (EXI01 AMOLED_EN for this specific device). A micropython developped by myself if provided in the example directory if needed.
 
 ```Shell
 import amoled
@@ -137,6 +143,25 @@ panel = amoled.QSPIPanel(spi=spi, data=(TFT_D0, TFT_D1, TFT_D2, TFT_D3),
             dc=TFT_D1, cs=TFT_CS, pclk=SPI_BAUD, width=TFT_HEIGHT, height=TFT_WIDTH)
 display = amoled.AMOLED(panel, type=1, reset=TFT_RST, bpp=16, auto_refresh= True)
 ```
+Example for using GPIO extender for waveshare Amoled 1.8"
+
+    import tca9554  # Extended GPIO
+    [...]
+    TFT_CDE = tca9554.TCA9554(i2c, pin=1, io=0) #Specific EXI01 AMOLED_EN : Output
+    
+    TFT_TS_RST = tca9554.TCA9554(i2c, pin=2, io=0) # TFT RST is EXIO_2
+    panel = amoled.QSPIPanel(spi=spi, data=(TFT_D0, TFT_D1, TFT_D2, TFT_D3),
+            dc=TFT_D1, cs=TFT_CS, pclk=80_000_000, width=TFT_WIDTH, height=TFT_HEIGHT)
+            
+    display = amoled.AMOLED(panel, type=2, reset=TFT_RST, bpp=16)
+    display.reset()
+    display.init()
+    display.brightness(255)
+    TFT_CDE.value(1)
+    
+The last line TFT_CDE.value will activate the display...
+
+    
 
 ## Documentation
 In general, the screen starts at 0 and goes to 599 x 449 for T4-S3 (resp 535 x 239 for T-Display S3), that's a total resolution of 600 x 450 (resp 536 x 240).
@@ -148,16 +173,17 @@ dir(amoled)
  'QSPIPanel', 'RED', 'RGB', 'WHITE', 'YELLOW', '__dict__']
 
 dir(amoled.AMOLED)
-['__class__', '__name__', 'write', 'BGR', 'MONOCHROME', 'RGB', '__bases__', '__del__', '__dict__',
- 'backlight_off', 'backlight_on', 'bitmap', 'brightness', 'bubble_rect', 'circle', 'colorRGB', 'deinit',
- 'disp_off', 'disp_on', 'draw', 'draw_len', 'fill', 'fill_bubble_rect', 'fill_circle', 'fill_polygon',
- 'fill_rect', 'fill_trian', 'height', 'hline', 'init', 'invert_color', 'jpg', 'jpg_decode', 'line',
- 'mirror', 'pixel', 'polygon', 'polygon_center', 'rect', 'refresh', 'reset', 'rotation', 'send_cmd',
- 'set_gap', 'swap_xy', 'text', 'text_len', 'trian', 'version', 'vline', 'vscroll_area', 'vscroll_start',
- 'width', 'write_len']
+['__class__', '__name__', 'write', 'BGR', 'MONOCHROME', 'RGB', '__bases__',
+ '__del__', '__dict__', 'backlight_off', 'backlight_on', 'bitmap',
+ 'brightness', 'bubble_rect', 'circle', 'colorRGB', 'deinit', 'disp_off',
+ 'disp_on', 'draw', 'draw_len', 'fill', 'fill_bubble_rect', 'fill_circle',
+ 'fill_polygon', 'fill_rect', 'fill_trian', 'height', 'hline', 'init',
+ 'invert_color', 'jpg', 'jpg_decode', 'line', 'mirror', 'pixel', 'polygon',
+ 'polygon_center', 'rect', 'refresh', 'reset', 'rotation', 'send_cmd',
+ 'set_gap', 'swap_xy', 'text', 'text_len', 'trian', 'ttf_draw',
+ 'ttf_init_font', 'ttf_len', 'ttf_load_font', 'ttf_scale_font', 'version',
+ 'vline', 'vscroll_area', 'vscroll_start', 'width', 'write_len']
 ```
-
-
 
 - `amoled.COLOR`
 
@@ -302,6 +328,22 @@ dir(amoled.AMOLED)
 - `draw_len(vector_font, s[, scale]`
   Returns the string's width in pixels if drawn with the specified font.
 
+- `ttf_load_font("path_to_ttf_font.ttf")`
+  Loads a TrueType font and replies True if everything was ok.
+
+- `ttf_init_font()`
+  Initializes the font, processing the loaded font to get all the metric needed.
+
+- `display.ttf_scale_font(xscale [,yscale])`
+  Scales the font as needed, in both direction if only xscale is given, otherwise differently in the two directions.
+
+- `display.ttf_draw(s,x,y,[fg_color, bg_color])`
+  Displays the string s, at coordonates x,y. Defaults front color is white but can be defined. If no background color is given, the render will keep current background, otherwise it will use de given background color. Keep in mind that every caracter has its own dimension so the backgroung might be heterogenous (a small letter might be 32x32 whereas it's neighbour might be 32x64, in this case the upper background of the small letter is not rendered). I'll keep improving later.
+
+- `display.ttf_len(s)`
+  Gives the width of the string...
+
+
 ## Related Repositories
 
 - [framebuf-plus](https://github.com/lbuque/framebuf-plus)
@@ -309,8 +351,8 @@ dir(amoled.AMOLED)
 
 ## Build
 This is only for reference. Since ESP-IDF v5.0.2 to v5.4.1, the path to the cmake files changes.
-The instruction below are working with ESP-IDF v5.4.1 and Micropython 1.25.
-Please note that for now, compilation crashes with Micropython 1.26_preview
+The instruction below are working with ESP-IDF v5.5.2 and Micropython 1.26.
+
 ```Shell
 cd ~
 git clone https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython.git
@@ -353,7 +395,3 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
-
-
-
-
