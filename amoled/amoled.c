@@ -11,6 +11,9 @@ https://github.com/nspsck/RM67162_Micropython_QSPI
 Xinyuan-LilyGO LilyGo-AMOLED-Series
 https://github.com/Xinyuan-LilyGO/LilyGo-AMOLED-Series
 
+Thomas Oltmann Libschrift TTF library
+https://github.com/tomolt/libschrift
+
 This micropython C library is a standalone graphic library for
 
 Lilygo T-Display S3 Amoled 1.91"
@@ -18,7 +21,12 @@ Lilygo T4-S3 Amoled 2.4"
 Waveshare ESP32-S3 Touch Amoled 1.8"
 Waveshare ESP32-S3 Touch Amoled 2.41"
 
-License if public*/
+License if public
+
+Known limitations
+
+A major part of the code works for 16bpp colorset, event some other are already ok for 18 & 24bpp
+*/
 
 
 #include "amoled.h"
@@ -33,19 +41,16 @@ License if public*/
 #include "esp_lcd_panel_io.h"
 #include "driver/spi_master.h"
 
+#include "esp_heap_caps.h"
 #include "mpfile/mpfile.h"
 #include "jpg/tjpgd565.h"
+#include "schrift/schrift.h"
 
 #include <string.h>
 #include <math.h>
 #include <wchar.h>
 
-#define AMOLED_DRIVER_VERSION "31.07.2025"
-
-#if MICROPY_VERSION >= MICROPY_MAKE_VERSION(1, 23, 0) 
-#undef STATIC
-#define STATIC static
-#endif
+#define AMOLED_DRIVER_VERSION "28.11.2025"
 
 #define _swap_int16_t(a, b) { int16_t t = a; a = b; b = t; }
 #define ABS(N) (((N) < 0) ? (-(N)) : (N))
@@ -53,7 +58,9 @@ License if public*/
 
 #define MAX_POLY_CORNERS 32
 
-//#define MAX_BUFFER_SIZE_IN_PIXEL  4800 // 600 * 8 = 4800
+#define MAX_BUFFER  4800
+
+enum { SrcMapping, SrcUser };
 
 const char* color_space_desc[] = {
     "RGB",
@@ -72,24 +79,25 @@ const char* color_space_desc[] = {
 */
 
 // Rotation Matrix { madctl, width, height, colstart, rowstart }
-STATIC const amoled_rotation_t ORIENTATIONS_RM690B0[4] = {
-    { MADCTL_DEFAULT,				450, 600, 16, 0},
-    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MV,	600, 450, 0, 16}, // Column decrease + Row-Col exchange
-    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MY,	450, 600, 16, 0}, // Column decrease + Row decrease
-    { MADCTL_DEFAULT | MADCTL_MV | MADCTL_MY,	600, 450, 0, 16}  // Row decrease + Row-Col exchange
+static const amoled_rotation_t ORIENTATIONS_RM690B0[4] = {
+    { MADCTL_DEFAULT,								450, 600, 16, 0},
+    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MV, 		600, 450, 0, 16}, // Column decrease + Row-Col exchange
+    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MY, 		450, 600, 16, 0}, // Column decrease + Row decrease
+    { MADCTL_DEFAULT | MADCTL_MV | MADCTL_MY, 		600, 450, 0, 16}  // Row decrease + Row-Col exchange
 };
 
-STATIC const amoled_rotation_t ORIENTATIONS_RM67162[4] = {
-    { MADCTL_DEFAULT,				240, 536, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MV, 	536, 240, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MY, 	240, 536, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_MV | MADCTL_MY, 	536, 240, 0, 0}
+static const amoled_rotation_t ORIENTATIONS_RM67162[4] = {
+    { MADCTL_DEFAULT,								240, 536, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MV, 		536, 240, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MY, 		240, 536, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MV | MADCTL_MY, 		536, 240, 0, 0}
 };
 
-STATIC const amoled_rotation_t ORIENTATIONS_SH8601[4] = {
-    { MADCTL_DEFAULT,					368, 448, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_RSMX, 			368, 448, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_RSMY, 			368, 448, 0, 0},
+//No rotation for SH8601, just mirror Up/Down, Left/Right and both together
+static const amoled_rotation_t ORIENTATIONS_SH8601[4] = {
+    { MADCTL_DEFAULT,								368, 448, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_RSMX, 				368, 448, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_RSMY, 				368, 448, 0, 0},
     { MADCTL_DEFAULT | MADCTL_RSMX | MADCTL_RSMY, 	368, 448, 0, 0}
 };
 
@@ -98,11 +106,11 @@ int mod(int x, int m) {
     return (r < 0) ? r + m : r;
 }
 
-int maxx(uint16_t x1, uint16_t x2) {
+int max_val(uint16_t x1, uint16_t x2) {
 	return (x1 > x2) ? x1 : x2;
 }
 
-int minx(uint16_t x1, uint16_t x2) {
+int min_val(uint16_t x1, uint16_t x2) {
 	return (x1 < x2) ? x1 : x2;
 }
 
@@ -111,7 +119,7 @@ Below are transmission related functions.
 -----------------------------------------------------------------------------------------------------*/
 
 // send a buffer to the panel display memory using the panel tx_color
-STATIC void write_color(amoled_AMOLED_obj_t *self, const void *buf, int len) {
+static void write_color(amoled_AMOLED_obj_t *self, const void *buf, int len) {
     if (self->lcd_panel_p) {
             self->lcd_panel_p->tx_color(self->bus_obj, 0, buf, len);
     } else {
@@ -120,7 +128,7 @@ STATIC void write_color(amoled_AMOLED_obj_t *self, const void *buf, int len) {
 }
 
 // send a buffer to the panel IC register using the panel tx_color
-STATIC void write_spi(amoled_AMOLED_obj_t *self, int cmd, const void *buf, int len) {
+static void write_spi(amoled_AMOLED_obj_t *self, int cmd, const void *buf, int len) {
     if (self->lcd_panel_p) {
             self->lcd_panel_p->tx_param(self->bus_obj, cmd, buf, len);
     } else {
@@ -132,17 +140,7 @@ STATIC void write_spi(amoled_AMOLED_obj_t *self, int cmd, const void *buf, int l
 Below are initialization related functions.
 -----------------------------------------------------------------------------------------------------*/
 
-STATIC void frame_buffer_alloc(amoled_AMOLED_obj_t *self, int len) {
-    self->frame_buffer_size = len;
-    self->frame_buffer = m_malloc(self->frame_buffer_size);
-    
-    if (self->frame_buffer == NULL) {
-        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Failed to allocate Frame Buffer."));
-    }
-    memset(self->frame_buffer, 0, self->frame_buffer_size);
-}
-
-STATIC void set_rotation(amoled_AMOLED_obj_t *self, uint8_t rotation) {
+static void set_rotation(amoled_AMOLED_obj_t *self, uint8_t rotation) {
     self->madctl_val &= 0x1F; // keep ML, BGR, MH, RSMX and RSMY, but reset MY,MX, MV
     self->madctl_val |= self->rotations[rotation].madctl;
 
@@ -156,7 +154,7 @@ STATIC void set_rotation(amoled_AMOLED_obj_t *self, uint8_t rotation) {
     self->y_gap = self->rotations[rotation].rowstart;
 }
 
-STATIC void amoled_AMOLED_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t  kind) {
+static void amoled_AMOLED_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t  kind) {
     (void) kind;
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_printf(
@@ -216,16 +214,20 @@ mp_obj_t amoled_AMOLED_make_new(const mp_obj_type_t *type, size_t n_args, size_t
     // self->max_width_value etc will be initialized in the rotation later.
     self->width = ((amoled_qspi_bus_obj_t *)self->bus_obj)->width;
     self->height = ((amoled_qspi_bus_obj_t *)self->bus_obj)->height;
-	
+  
+	//Get other arguments
 	self->auto_refresh = args[ARG_auto_refresh].u_bool;
-
-    // 2 bytes for each pixel. so maximum will be width * height * 2
-    frame_buffer_alloc(self, self->width * self->height * 2);
-    
     self->reset       = args[ARG_reset].u_obj;
     self->reset_level = args[ARG_reset_level].u_bool;
     self->color_space = args[ARG_color_space].u_int;
     self->bpp         = args[ARG_bpp].u_int;
+	
+	// And finally allocate Frame Buffer (need self->bpp to be configured)
+	// Allocate memory 16bpp : width * height , byte/pixel = bpp >> 3, into SPIRAM
+    self->frame_buffer = heap_caps_calloc(self->width * self->height, self->bpp >> 3, MALLOC_CAP_8BIT); 
+    if (self->frame_buffer == NULL) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Failed to allocate Frame Buffer."));
+    }
 
     // reset
     if (self->reset != MP_OBJ_NULL) {
@@ -290,30 +292,30 @@ mp_obj_t amoled_AMOLED_make_new(const mp_obj_type_t *type, size_t n_args, size_t
 }
 
 
-STATIC mp_obj_t amoled_AMOLED_version() {   
+static mp_obj_t amoled_AMOLED_version() {   
     return mp_obj_new_str(AMOLED_DRIVER_VERSION, 10);
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(amoled_AMOLED_version_obj, amoled_AMOLED_version);
+static MP_DEFINE_CONST_FUN_OBJ_0(amoled_AMOLED_version_obj, amoled_AMOLED_version);
 
 
-STATIC mp_obj_t amoled_AMOLED_deinit(mp_obj_t self_in) {
+static mp_obj_t amoled_AMOLED_deinit(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
     if (self->lcd_panel_p) {
         self->lcd_panel_p->deinit(self->bus_obj);
     }
 
-    gc_free(self->frame_buffer);
+    heap_caps_free(self->frame_buffer);
 
     //m_del_obj(amoled_AMOLED_obj_t, self); 
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_deinit_obj, amoled_AMOLED_deinit);
+static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_deinit_obj, amoled_AMOLED_deinit);
 
 
-STATIC mp_obj_t amoled_AMOLED_reset(mp_obj_t self_in) {
+static mp_obj_t amoled_AMOLED_reset(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
     if (self->reset != MP_OBJ_NULL) {
@@ -329,12 +331,12 @@ STATIC mp_obj_t amoled_AMOLED_reset(mp_obj_t self_in) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_reset_obj, amoled_AMOLED_reset);
+static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_reset_obj, amoled_AMOLED_reset);
 
 
 //Init function for RM67162, RM690B0 and SH8601
 
-STATIC mp_obj_t amoled_AMOLED_init(mp_obj_t self_in) {
+static mp_obj_t amoled_AMOLED_init(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
 	switch (self->type) {
@@ -398,10 +400,10 @@ STATIC mp_obj_t amoled_AMOLED_init(mp_obj_t self_in) {
 	}
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_init_obj, amoled_AMOLED_init);
+static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_init_obj, amoled_AMOLED_init);
 
 
-STATIC mp_obj_t amoled_AMOLED_send_cmd(size_t n_args, const mp_obj_t *args)
+static mp_obj_t amoled_AMOLED_send_cmd(size_t n_args, const mp_obj_t *args)
 {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint8_t cmd = mp_obj_get_int(args[1]);
@@ -417,29 +419,29 @@ STATIC mp_obj_t amoled_AMOLED_send_cmd(size_t n_args, const mp_obj_t *args)
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_send_cmd_obj, 4, 4, amoled_AMOLED_send_cmd);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_send_cmd_obj, 4, 4, amoled_AMOLED_send_cmd);
 
 /*-----------------------------------------------------------------------------------------------------
 Below are buffers and screen buffers related function.
 ------------------------------------------------------------------------------------------------------*/
 
-STATIC uint16_t colorRGB(uint8_t r, uint8_t g, uint8_t b) {
+static uint16_t colorRGB(uint8_t r, uint8_t g, uint8_t b) {
     uint16_t c = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3);
     return ((((c) >> 8) & 0x00FF) | (((c) << 8) & 0xFF00));
 }
 
 
-STATIC mp_obj_t amoled_AMOLED_colorRGB(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_colorRGB(size_t n_args, const mp_obj_t *args) {
     return MP_OBJ_NEW_SMALL_INT(colorRGB(
         (uint8_t)mp_obj_get_int(args[1]),
         (uint8_t)mp_obj_get_int(args[2]),
         (uint8_t)mp_obj_get_int(args[3])));
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_colorRGB_obj, 4, 4, amoled_AMOLED_colorRGB);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_colorRGB_obj, 4, 4, amoled_AMOLED_colorRGB);
 
 
-STATIC void set_area(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
+static void set_area(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
     if ((x0 <= x1) & (x1 <= self->max_width_value) & (y0 <= y1) & (y1 <= self->max_height_value)) {
 
 		/* As RM69090 driver need offset (see ORIENTATIONS_GENERAL) then the memory area needs to follow offsets*/
@@ -467,7 +469,7 @@ STATIC void set_area(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint16
 }
 
 //This function send a part of the frame_buffer to the display memory
-STATIC void refresh_display(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+static void refresh_display(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
 	
 	// The SC[9:0] must be divisible by 2 (EVEN)
 	uint16_t SC = x & 0xFE; 
@@ -483,28 +485,29 @@ STATIC void refresh_display(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, u
 
 		uint16_t w1 = EC - SC + 1 ; // Corrected width
 		uint16_t h1 = ER - SR + 1;
-
-		self->partial_frame_buffer_size = w1 * h1 * 2;
-		self->partial_frame_buffer = m_malloc(self->partial_frame_buffer_size);
+		uint32_t partial_frame_buffer_size = w1 * h1;
+		uint8_t Byte_pp = self->bpp >> 3;
+		
+		self->partial_frame_buffer = heap_caps_calloc(w1 * h1, Byte_pp, MALLOC_CAP_8BIT);
 
 		//Copy frame_buffer to partial_frame_buffer
 		p_buf_idx = 0;
 		for (uint16_t line = 0; line < h1; line++) {
 			buf_idx = ((SR + line) * self->width) + SC;
-			memcpy(&self->partial_frame_buffer[p_buf_idx], &self->frame_buffer[buf_idx], 2 * w1);
+			memcpy(&self->partial_frame_buffer[p_buf_idx], &self->frame_buffer[buf_idx], Byte_pp * w1);
 			p_buf_idx += w1;
 		}
 		
 		//Set display areas and write the partial frame buffer
 		set_area(self, SC, SR, EC, ER);
-		write_color(self, self->partial_frame_buffer, self->partial_frame_buffer_size);
+		write_color(self, self->partial_frame_buffer, partial_frame_buffer_size * Byte_pp);
 
 		//Than partial frame buffer  memory and return
-		m_free(self->partial_frame_buffer);
+		heap_caps_free(self->partial_frame_buffer);
 	}
 }
 
-STATIC mp_obj_t amoled_AMOLED_refresh(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_refresh(size_t n_args, const mp_obj_t *args) {
 	amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
 	bool save_auto_refresh = self->auto_refresh;  //Save auto_refresh value
 		
@@ -520,22 +523,20 @@ STATIC mp_obj_t amoled_AMOLED_refresh(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_refresh_obj, 1, 1, amoled_AMOLED_refresh);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_refresh_obj, 1, 1, amoled_AMOLED_refresh);
 
 // This fill the frame buffer area, it has no dimension check, all should be done previously
-STATIC void fill_frame_buffer(amoled_AMOLED_obj_t *self, uint16_t color, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+static void fill_frame_buffer(amoled_AMOLED_obj_t *self, uint16_t color, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
 	
 	size_t buf_idx;
 	
     if (self->frame_buffer == NULL) {
         mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("No framebuffer available."));
     }
-
-    color = (color << 16) | color;
 	
 	for (uint16_t line = 0; line < h; line++) {
 		buf_idx = ((y + line) * self->width) + x;
-		wmemset(&self->frame_buffer[buf_idx],color,w);
+		wmemset(&self->frame_buffer[buf_idx],color,w);  //wmenset is 2 bytes wide opération
 	}
 
     if ((!self->hold_display) & (self->auto_refresh)) {
@@ -547,7 +548,7 @@ STATIC void fill_frame_buffer(amoled_AMOLED_obj_t *self, uint16_t color, uint16_
 Below are drawing functions : Pixel, lines, rectangles, filled circles, a.s.o
 ------------------------------------------------------------------------------------------------------*/
 
-STATIC void pixel(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t color) {
+static void pixel(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t color) {
 	
 	size_t buf_idx;
 	if ((x <= self->max_width_value) & (y <= self->max_height_value)) {
@@ -559,7 +560,7 @@ STATIC void pixel(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t co
 	}
 }
 
-STATIC mp_obj_t amoled_AMOLED_pixel(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_pixel(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t x = mp_obj_get_int(args[1]);
     uint16_t y = mp_obj_get_int(args[2]);
@@ -570,10 +571,10 @@ STATIC mp_obj_t amoled_AMOLED_pixel(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_pixel_obj, 4, 4, amoled_AMOLED_pixel);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_pixel_obj, 4, 4, amoled_AMOLED_pixel);
 
 
-STATIC mp_obj_t amoled_AMOLED_fill(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_fill(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t color = mp_obj_get_int(args[1]);
 	
@@ -582,10 +583,10 @@ STATIC mp_obj_t amoled_AMOLED_fill(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_obj, 2, 2, amoled_AMOLED_fill);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_obj, 2, 2, amoled_AMOLED_fill);
 
 
-STATIC void fast_hline(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t len, uint16_t color) {
+static void fast_hline(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t len, uint16_t color) {
 
 	if ((x <= self->max_width_value) & (y <= self->max_height_value) & (len >0)){
 		if (x + len > self->max_width_value) {
@@ -595,7 +596,7 @@ STATIC void fast_hline(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16
 	}
 }
 
-STATIC mp_obj_t amoled_AMOLED_hline(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_hline(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t x = mp_obj_get_int(args[1]);
     uint16_t y = mp_obj_get_int(args[2]);
@@ -606,10 +607,10 @@ STATIC mp_obj_t amoled_AMOLED_hline(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_hline_obj, 5, 5, amoled_AMOLED_hline);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_hline_obj, 5, 5, amoled_AMOLED_hline);
 
 
-STATIC void fast_vline(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t len, uint16_t color) {
+static void fast_vline(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t len, uint16_t color) {
 	if ((x <= self->max_width_value) & (y <= self->max_height_value) & (len >0)){
 		if (y + len > self->max_height_value) {
 			len = self->max_height_value - y;
@@ -618,7 +619,7 @@ STATIC void fast_vline(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16
 	}
 }
 
-STATIC mp_obj_t amoled_AMOLED_vline(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_vline(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t x = mp_obj_get_int(args[1]);
     uint16_t y = mp_obj_get_int(args[2]);
@@ -629,10 +630,10 @@ STATIC mp_obj_t amoled_AMOLED_vline(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_vline_obj, 5, 5, amoled_AMOLED_vline);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_vline_obj, 5, 5, amoled_AMOLED_vline);
 
 
-STATIC void line(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color) {
+static void line(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color) {
     bool steep = ABS(y1 - y0) > ABS(x1 - x0);
 	bool saved_hold_display = self->hold_display;
 	
@@ -694,7 +695,7 @@ STATIC void line(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint16_t x
 	}
 }
 
-STATIC mp_obj_t amoled_AMOLED_line(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_line(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t x0 = mp_obj_get_int(args[1]);
     uint16_t y0 = mp_obj_get_int(args[2]);
@@ -706,10 +707,10 @@ STATIC mp_obj_t amoled_AMOLED_line(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_line_obj, 6, 6, amoled_AMOLED_line);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_line_obj, 6, 6, amoled_AMOLED_line);
 
 
-STATIC void rect(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
+static void rect(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
 
 	if (x + w > self->width || y + h > self->height || w == 0 || h ==0) {
 		return;
@@ -731,7 +732,7 @@ STATIC void rect(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t w, 
 	refresh_display(self,x,y,w,h);
 }
 
-STATIC mp_obj_t amoled_AMOLED_rect(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_rect(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t x = mp_obj_get_int(args[1]);
     uint16_t y = mp_obj_get_int(args[2]);
@@ -743,10 +744,10 @@ STATIC mp_obj_t amoled_AMOLED_rect(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_rect_obj, 6, 6, amoled_AMOLED_rect);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_rect_obj, 6, 6, amoled_AMOLED_rect);
 
 
-STATIC void fill_rect(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
+static void fill_rect(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
 
 	/* Check are done to see if COL and ROW START ARE EVEN and COL and ROW END minus START are also divisible by 2*/
 	if (x + w > self->width || y + h > self->height || w == 0 || h ==0) {
@@ -755,7 +756,7 @@ STATIC void fill_rect(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_
 	fill_frame_buffer(self, color, x, y, w, h);
 }
 
-STATIC mp_obj_t amoled_AMOLED_fill_rect(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_fill_rect(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t x = mp_obj_get_int(args[1]);
     uint16_t y = mp_obj_get_int(args[2]);
@@ -767,15 +768,15 @@ STATIC mp_obj_t amoled_AMOLED_fill_rect(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_rect_obj, 6, 6, amoled_AMOLED_fill_rect);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_rect_obj, 6, 6, amoled_AMOLED_fill_rect);
 
 
-STATIC void trian(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color) {
+static void trian(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color) {
 
-	uint16_t xmin = minx(minx(x0,x1),x2);
-	uint16_t xmax = maxx(maxx(x0,x1),x2);
-	uint16_t ymin = minx(minx(y0,y1),y2);
-	uint16_t ymax = maxx(maxx(y0,y1),y2);
+	uint16_t xmin = min_val(min_val(x0,x1),x2);
+	uint16_t xmax = max_val(max_val(x0,x1),x2);
+	uint16_t ymin = min_val(min_val(y0,y1),y2);
+	uint16_t ymax = max_val(max_val(y0,y1),y2);
 
 	self->hold_display = true;
 	line(self, x0, y0, x1, y1, color);
@@ -785,7 +786,7 @@ STATIC void trian(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint16_t 
 	refresh_display(self,xmin,ymin,xmax-xmin,ymax-ymin);
 }
 
-STATIC mp_obj_t amoled_AMOLED_trian(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_trian(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t x0 = mp_obj_get_int(args[1]);
     uint16_t y0 = mp_obj_get_int(args[2]);
@@ -799,13 +800,13 @@ STATIC mp_obj_t amoled_AMOLED_trian(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_trian_obj, 8, 8, amoled_AMOLED_trian);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_trian_obj, 8, 8, amoled_AMOLED_trian);
 
 
-STATIC void fill_trian(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color) {
+static void fill_trian(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color) {
 
-	uint16_t xmin = minx(minx(x0,x1),x2);
-	uint16_t xmax = maxx(maxx(x0,x1),x2);
+	uint16_t xmin = min_val(min_val(x0,x1),x2);
+	uint16_t xmax = max_val(max_val(x0,x1),x2);
 	mp_float_t dx02;
 	mp_float_t dx01;
 	mp_float_t dx12;
@@ -868,7 +869,7 @@ STATIC void fill_trian(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint
 	refresh_display(self,xmin,y0,xmax-xmin,y2-y0);
 }
 
-STATIC mp_obj_t amoled_AMOLED_fill_trian(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_fill_trian(size_t n_args, const mp_obj_t *args) {
 	amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
 	uint16_t x0 = mp_obj_get_int(args[1]);
 	uint16_t y0 = mp_obj_get_int(args[2]);
@@ -881,10 +882,10 @@ STATIC mp_obj_t amoled_AMOLED_fill_trian(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_trian_obj, 8, 8, amoled_AMOLED_fill_trian);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_trian_obj, 8, 8, amoled_AMOLED_fill_trian);
 
 
-STATIC void bubble_rect(amoled_AMOLED_obj_t *self, uint16_t xs, uint16_t ys, uint16_t w, uint16_t h, uint16_t color) {
+static void bubble_rect(amoled_AMOLED_obj_t *self, uint16_t xs, uint16_t ys, uint16_t w, uint16_t h, uint16_t color) {
     if (xs + w > self->width || ys + h > self->height) {
         return;
     }
@@ -940,7 +941,7 @@ STATIC void bubble_rect(amoled_AMOLED_obj_t *self, uint16_t xs, uint16_t ys, uin
 	refresh_display(self,xs,ys,w,h);
 }
 
-STATIC mp_obj_t amoled_AMOLED_bubble_rect(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_bubble_rect(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t x = mp_obj_get_int(args[1]);
     uint16_t y = mp_obj_get_int(args[2]);
@@ -952,10 +953,10 @@ STATIC mp_obj_t amoled_AMOLED_bubble_rect(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_bubble_rect_obj, 6, 6, amoled_AMOLED_bubble_rect);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_bubble_rect_obj, 6, 6, amoled_AMOLED_bubble_rect);
 
 
-STATIC void fill_bubble_rect(amoled_AMOLED_obj_t *self, uint16_t xs, uint16_t ys, uint16_t w, uint16_t h, uint16_t color) {
+static void fill_bubble_rect(amoled_AMOLED_obj_t *self, uint16_t xs, uint16_t ys, uint16_t w, uint16_t h, uint16_t color) {
     if (xs + w > self->width || ys + h > self->height) {
         return;
     }
@@ -1001,7 +1002,7 @@ STATIC void fill_bubble_rect(amoled_AMOLED_obj_t *self, uint16_t xs, uint16_t ys
 	refresh_display(self,xs,ys,w,h);
 }
 
-STATIC mp_obj_t amoled_AMOLED_fill_bubble_rect(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_fill_bubble_rect(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t x = mp_obj_get_int(args[1]);
     uint16_t y = mp_obj_get_int(args[2]);
@@ -1013,10 +1014,10 @@ STATIC mp_obj_t amoled_AMOLED_fill_bubble_rect(size_t n_args, const mp_obj_t *ar
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_bubble_rect_obj, 6, 6, amoled_AMOLED_fill_bubble_rect);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_bubble_rect_obj, 6, 6, amoled_AMOLED_fill_bubble_rect);
 
 
-STATIC void circle(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_t r, uint16_t color) {
+static void circle(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_t r, uint16_t color) {
     int x = 0;
     int y = r;
     int p = 1 - r;
@@ -1044,7 +1045,7 @@ STATIC void circle(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_t
 	refresh_display(self,xm-r,ym-r,2*r+1,2*r+1);
 }
 
-STATIC mp_obj_t amoled_AMOLED_circle(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_circle(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t xm = mp_obj_get_int(args[1]);
     uint16_t ym = mp_obj_get_int(args[2]);
@@ -1055,10 +1056,10 @@ STATIC mp_obj_t amoled_AMOLED_circle(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_circle_obj, 5, 5, amoled_AMOLED_circle);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_circle_obj, 5, 5, amoled_AMOLED_circle);
 
 
-STATIC void fill_circle(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_t r, uint16_t color) {
+static void fill_circle(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_t r, uint16_t color) {
     int x = 0;
     int y = r;
     int p = 1 - r;
@@ -1082,7 +1083,7 @@ STATIC void fill_circle(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uin
 	refresh_display(self,xm-r,ym-r,2*r+1,2*r+1);
 }
 
-STATIC mp_obj_t amoled_AMOLED_fill_circle(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_fill_circle(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t xm = mp_obj_get_int(args[1]);
     uint16_t ym = mp_obj_get_int(args[2]);
@@ -1093,11 +1094,11 @@ STATIC mp_obj_t amoled_AMOLED_fill_circle(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_circle_obj, 5, 5, amoled_AMOLED_fill_circle);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_circle_obj, 5, 5, amoled_AMOLED_fill_circle);
 
 
 // Return the center of a polygon as an (x, y) tuple
-STATIC mp_obj_t amoled_AMOLED_polygon_center(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_polygon_center(size_t n_args, const mp_obj_t *args) {
     size_t poly_len;
     mp_obj_t *polygon;
     mp_obj_get_array(args[1], &poly_len, &polygon);
@@ -1143,10 +1144,10 @@ STATIC mp_obj_t amoled_AMOLED_polygon_center(size_t n_args, const mp_obj_t *args
     return mp_obj_new_tuple(2, center);
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_polygon_center_obj, 2, 2, amoled_AMOLED_polygon_center);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_polygon_center_obj, 2, 2, amoled_AMOLED_polygon_center);
 
 
-STATIC void rotate_polygon(Polygon *polygon, Point center, mp_float_t angle) {
+static void rotate_polygon(Polygon *polygon, Point center, mp_float_t angle) {
     if (polygon->length == 0) {
         return;         /* reject null polygons */
 
@@ -1164,7 +1165,7 @@ STATIC void rotate_polygon(Polygon *polygon, Point center, mp_float_t angle) {
 }
 
 
-STATIC mp_obj_t amoled_AMOLED_polygon(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_polygon(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
 
     size_t poly_len;
@@ -1199,7 +1200,7 @@ STATIC mp_obj_t amoled_AMOLED_polygon(size_t n_args, const mp_obj_t *args) {
             cy = mp_obj_get_int(args[7]);
         }
 
-        self->work = m_malloc(poly_len * sizeof(Point));
+        self->work = heap_caps_malloc(poly_len * sizeof(Point), MALLOC_CAP_8BIT);
         if (self->work) {
             Point *point = (Point *)self->work;
 
@@ -1253,7 +1254,7 @@ STATIC mp_obj_t amoled_AMOLED_polygon(size_t n_args, const mp_obj_t *args) {
 			self->hold_display = false;
 			refresh_display(self,xmin,ymin,xmax-xmin,ymax-ymin);
 			
-            m_free(self->work);
+            heap_caps_free(self->work);
             self->work = NULL;
         } else {
             mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("Polygon data error"));
@@ -1265,11 +1266,11 @@ STATIC mp_obj_t amoled_AMOLED_polygon(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_polygon_obj, 5, 8, amoled_AMOLED_polygon);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_polygon_obj, 5, 8, amoled_AMOLED_polygon);
 
 
 // public-domain code by Darel Rex Finley, 2007 https://alienryderflex.com/polygon_fill/ 
-STATIC void fill_polygon(amoled_AMOLED_obj_t *self, Polygon *polygon, Point location, uint16_t color) {
+static void fill_polygon(amoled_AMOLED_obj_t *self, Polygon *polygon, Point location, uint16_t color) {
     int nodes, nodeX[MAX_POLY_CORNERS], pixelY, i, j, swap;
 
     int minX = INT_MAX;
@@ -1358,7 +1359,7 @@ STATIC void fill_polygon(amoled_AMOLED_obj_t *self, Polygon *polygon, Point loca
 	refresh_display(self,minX,minY,maxX - minX,maxY - minY);
 }
 
-STATIC mp_obj_t amoled_AMOLED_fill_polygon(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_fill_polygon(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
 
     size_t poly_len;
@@ -1385,7 +1386,7 @@ STATIC mp_obj_t amoled_AMOLED_fill_polygon(size_t n_args, const mp_obj_t *args) 
             cy = mp_obj_get_int(args[7]);
         }
 
-        self->work = m_malloc(poly_len * sizeof(Point));
+        self->work = heap_caps_malloc(poly_len * sizeof(Point), MALLOC_CAP_8BIT);
         if (self->work) {
             Point *point = (Point *)self->work;
 
@@ -1411,7 +1412,7 @@ STATIC mp_obj_t amoled_AMOLED_fill_polygon(size_t n_args, const mp_obj_t *args) 
             Point location = {x, y};
             fill_polygon(self, &polygon, location, color);
 
-            m_free(self->work);
+            heap_caps_free(self->work);
             self->work = NULL;
         } else {
             mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("Polygon data error"));
@@ -1424,13 +1425,13 @@ STATIC mp_obj_t amoled_AMOLED_fill_polygon(size_t n_args, const mp_obj_t *args) 
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_polygon_obj, 5, 8, amoled_AMOLED_fill_polygon);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_polygon_obj, 5, 8, amoled_AMOLED_fill_polygon);
 
 /*-----------------------------------------------------------------------------------------------------
 Below are bitmap related functions
 ------------------------------------------------------------------------------------------------------*/
 
-STATIC mp_obj_t amoled_AMOLED_bitmap(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_bitmap(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
 
     int x_start = mp_obj_get_int(args[1]);
@@ -1452,13 +1453,13 @@ STATIC mp_obj_t amoled_AMOLED_bitmap(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_bitmap_obj, 6, 6, amoled_AMOLED_bitmap);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_bitmap_obj, 6, 6, amoled_AMOLED_bitmap);
 
 
-STATIC uint32_t bs_bit = 0;
+static uint32_t bs_bit = 0;
 uint8_t *bitmap_data = NULL;
 
-STATIC uint8_t get_color(uint8_t bpp) {
+static uint8_t get_color(uint8_t bpp) {
     uint8_t color = 0;
     int i;
 
@@ -1471,11 +1472,11 @@ STATIC uint8_t get_color(uint8_t bpp) {
 }
 
 /*-----------------------------------------------------------------------------------------------------
-Below are text related functions: text, write and draw
+Below are Monospaced fond related functions
 ------------------------------------------------------------------------------------------------------*/
 
 //	text(font_module, s, x, y[, fg, bg])
-STATIC mp_obj_t amoled_AMOLED_text(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_text(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint8_t single_char_s;
     const uint8_t *source = NULL;
@@ -1566,10 +1567,10 @@ STATIC mp_obj_t amoled_AMOLED_text(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_text_obj, 5, 7, amoled_AMOLED_text);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_text_obj, 5, 7, amoled_AMOLED_text);
 
 
-STATIC mp_obj_t amoled_AMOLED_text_len(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_text_len(size_t n_args, const mp_obj_t *args) {
     //amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint8_t single_char_s;
     const uint8_t *source = NULL;
@@ -1605,11 +1606,15 @@ STATIC mp_obj_t amoled_AMOLED_text_len(size_t n_args, const mp_obj_t *args) {
     return mp_obj_new_int(print_width);
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_text_len_obj, 3, 3, amoled_AMOLED_text_len);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_text_len_obj, 3, 3, amoled_AMOLED_text_len);
+
+/*---------------------------------------------------------------------------------------------------
+Below are Variable Fonts related functions
+----------------------------------------------------------------------------------------------------*/
 
 
 //	write(font_module, s, x, y[, fg, bg, background_tuple, fill]) with background_tuple (bitmap_buffer, width, height)
-STATIC mp_obj_t amoled_AMOLED_write(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_write(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     mp_obj_module_t *font = MP_OBJ_TO_PTR(args[1]);
 	size_t buf_idx;
@@ -1743,10 +1748,10 @@ STATIC mp_obj_t amoled_AMOLED_write(size_t n_args, const mp_obj_t *args) {
 	return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_write_obj, 5, 9, amoled_AMOLED_write);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_write_obj, 5, 9, amoled_AMOLED_write);
 
 
-STATIC mp_obj_t amoled_AMOLED_write_len(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_write_len(size_t n_args, const mp_obj_t *args) {
     mp_obj_module_t *font = MP_OBJ_TO_PTR(args[1]);
     mp_obj_dict_t *dict = MP_OBJ_TO_PTR(font->globals);
     mp_obj_t widths_data_buff = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_WIDTHS));
@@ -1785,11 +1790,14 @@ STATIC mp_obj_t amoled_AMOLED_write_len(size_t n_args, const mp_obj_t *args) {
     return mp_obj_new_int(print_width);
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_write_len_obj, 3, 3, amoled_AMOLED_write_len);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_write_len_obj, 3, 3, amoled_AMOLED_write_len);
 
+/*---------------------------------------------------------------------------------------------------
+Below are Hersey Vectorial Fonts related functions
+----------------------------------------------------------------------------------------------------*/
 
 //	draw(font_module, s, x, y[, fg, bg])
-STATIC mp_obj_t amoled_AMOLED_draw(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_draw(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     char single_char_s[] = {0, 0};
     const char *s;
@@ -1883,10 +1891,10 @@ STATIC mp_obj_t amoled_AMOLED_draw(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_draw_obj, 5, 7, amoled_AMOLED_draw);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_draw_obj, 5, 7, amoled_AMOLED_draw);
 
 
-STATIC mp_obj_t amoled_AMOLED_draw_len(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_draw_len(size_t n_args, const mp_obj_t *args) {
     char single_char_s[] = {0, 0};
     const char *s;
 
@@ -1940,7 +1948,246 @@ STATIC mp_obj_t amoled_AMOLED_draw_len(size_t n_args, const mp_obj_t *args) {
     return mp_obj_new_int((int)(print_width * scale + 0.5));
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_draw_len_obj, 3, 4, amoled_AMOLED_draw_len);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_draw_len_obj, 3, 4, amoled_AMOLED_draw_len);
+
+/*---------------------------------------------------------------------------------------------------
+Below are schrift  TTF related functions
+----------------------------------------------------------------------------------------------------*/
+
+//Load a file font ttf_load_font(filename)
+static mp_obj_t amoled_AMOLED_ttf_load_font(size_t n_args, const mp_obj_t *args) {
+    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+	const char *filename = mp_obj_str_get_str(args[1]);
+	int32_t size=0;
+	
+    //Create sft_font in SPIRAM
+	if (!(self->sft.font = heap_caps_malloc(sizeof *self->sft.font, MALLOC_CAP_8BIT))) {
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot allocate sft_font memory."));
+	}
+
+	//Use Amoled file pointer to opren font file
+	self->fp = mp_open(filename, "rb");	
+	
+	if (self->fp == NULL) {
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Failed to Open Font file."));
+	}
+	
+	if ((mp_seek(self->fp, 0, MP_SEEK_END) < 0) || ((size = mp_tell(self->fp)) < 0)) {
+		mp_close(self->fp);
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot determine Font file size."));
+	}
+
+	//Allocatate font memory buffer
+	self->sft.font->memory = heap_caps_malloc(size + 1, MALLOC_CAP_8BIT);
+	
+	//Check if memory allocation was OK
+	if(self->sft.font->memory == NULL) {
+		mp_close(self->fp);
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot allocate memory."));
+	}
+
+	//Go back (as Rewind) to the beginning of fp
+	mp_seek(self->fp, 0, MP_SEEK_SET);
+
+	//Read nsize bytes of fp to data
+	int32_t nread = mp_readinto(self->fp, (void *) self->sft.font->memory, size);
+	
+	if(nread != size) {
+		mp_close(self->fp);
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot read full file."));
+	}
+
+	//data[nread] = '\0';
+	
+	mp_close(self->fp);
+	
+	self->sft.font->size = nread;
+	self->sft.font->source = SrcMapping;
+
+	return mp_const_none;
+}
+
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_load_font_obj, 2, 2, amoled_AMOLED_ttf_load_font);
+
+//Initialise a font after loading, return True if everything is ok, False elsewhere
+static mp_obj_t amoled_AMOLED_ttf_init_font(size_t n_args, const mp_obj_t *args) {
+    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+	
+	if(init_font(self->sft.font) == 0) {
+		return mp_const_true;
+	} else {
+		return mp_const_false;
+	}
+}
+
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_init_font_obj, 1, 1, amoled_AMOLED_ttf_init_font);
+
+
+
+//Scale font ttf_scale_font(x_scale, y_scale) 
+static mp_obj_t amoled_AMOLED_ttf_scale_font(size_t n_args, const mp_obj_t *args) {
+    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+				
+	if (n_args > 1) {
+		if (mp_obj_is_float(args[1])) {
+            self->sft.xScale = (double)mp_obj_float_get(args[1]);
+        }
+        if (mp_obj_is_int(args[1])) {
+            self->sft.xScale = (double)mp_obj_get_int(args[1]);
+		}
+	} else {
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF scale need at least 1 argument"));
+	}
+	
+	if (n_args > 2) {
+		if (mp_obj_is_float(args[2])) {
+            self->sft.yScale = (double)mp_obj_float_get(args[2]);
+        }
+        if (mp_obj_is_int(args[2])) {
+            self->sft.yScale = (double)mp_obj_get_int(args[2]);
+		}
+	} else {
+		self->sft.yScale = self->sft.xScale;
+	}
+	
+	self->sft.flags = SFT_DOWNWARD_Y;
+
+    return mp_const_true;		
+}
+
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_scale_font_obj, 2, 3, amoled_AMOLED_ttf_scale_font);
+
+
+//Draw TTF text	draw(s, x, y[, fg, bg])
+static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
+    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    const uint8_t *source = (uint8_t *) mp_obj_str_get_str(args[1]);
+	size_t source_len = strlen((char *)source);
+    mp_int_t x0 = mp_obj_get_int(args[2]);
+    mp_int_t y0 = mp_obj_get_int(args[3]);
+	// Arg 5 if front Color, White by default
+    mp_int_t fg_color = (n_args > 4) ? mp_obj_get_int(args[4]) : WHITE; 
+	// Arg 6 if back Color, if specified we will write over the frame buffer
+	mp_int_t bg_color = (n_args > 5) ? mp_obj_get_int(args[5]) : BLACK;
+	// if no Arg 6, we will not overwrite frame buffer	
+	bool bg_filled = (n_args > 5) ? true : false;
+	
+	uint16_t x = x0;
+	uint16_t y = y0;
+	uint16_t ymin = y0;
+
+	//Convert string to utf32
+	//uint32_t codepoints[source_len];
+	//if ((n = utf8_to_utf32(s, codepoints, n)) == 0){
+	//	mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Connot convert UTF32"));
+	//}
+	
+	SFT_Glyph g_id;
+	//SFT_LMetrics l_mtx;
+	SFT_GMetrics g_mtx;
+	SFT_Image g_img;
+	
+	uint16_t gl_idx;   // index for rendered glyph
+	size_t buf_idx;    // index for frame buffer
+	uint8_t gl_data;   // temporary glyph pixel value
+
+	//Get Font LMetrics and adjust Y : Not used here since we deal only 1 line
+	/*if (sft_lmetrics(&self->sft, &l_mtx) <0) {
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot get LMetrics"));
+	}
+	y += l_mtx.ascender + l_mtx.lineGap;*/
+
+	uint8_t chr;
+
+	//Process every char
+	while(source_len--) {
+		chr = *source++;
+		
+		//Search the gliph_id within the Font
+		if(sft_lookup(&self->sft, chr, &g_id) < 0) {
+			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Unknown glyph"));
+		}
+
+		//Then Get Glyph Metrics
+		if(sft_gmetrics(&self->sft, g_id, &g_mtx) < 0) {
+			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Bad glyph metrics"));
+		}
+		
+		g_img.width = (g_mtx.minWidth + 3) & ~3;  // round to closest upper value multiple of 4 (0,4,8,aso...)
+		g_img.height = g_mtx.minHeight;
+		y = y0 + g_mtx.yOffset;
+		
+		//Setup an image and render the glyph to it
+		uint8_t pixels[g_img.width * g_img.height];
+		g_img.pixels = pixels;
+		if(sft_render(&self->sft, g_id, g_img) < 0) {
+			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Error SFT render"));
+		}
+		
+		//Now put the Glyph to the display		
+		gl_idx = 0;
+		for (uint16_t gl_y = 0; gl_y < g_img.height; gl_y++) {	    // for every line of the glyph
+			buf_idx = (y + gl_y) * self->width + x;				    // buf_idx is the frame buffer start index for each line
+			for (uint16_t gl_x = 0; gl_x < g_img.width; gl_x++) { 	// for every cols of the glyph line
+				gl_data = g_img.pixels[gl_idx];		                // get glyph pixel value
+                if (gl_data > 0) {
+					self->frame_buffer[buf_idx] = fg_color;
+				} else {
+					if (bg_filled) { self->frame_buffer[buf_idx] = bg_color; }
+				}
+				buf_idx++;    // Next framebuffer pixel
+				gl_idx ++;	  // Next glyph pixel
+			}
+		}
+		x += g_img.width;    // next glyph must de switched from previoux glyph width
+		ymin = min_val(ymin, y + g_img.height);
+	}
+	
+	//For now refresh the display (x,y,w,h)
+	//refresh_display(self,x0, ymin, x-x0 , y0-ymin);
+	refresh_display(self,0, 0, self->width , self->height);
+
+    return mp_const_none;
+}
+
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_draw_obj, 4, 6, amoled_AMOLED_ttf_draw);
+
+
+//Give dimension of TTF text draw_len(s)
+static mp_obj_t amoled_AMOLED_ttf_len(size_t n_args, const mp_obj_t *args) {
+    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    const uint8_t *source = (uint8_t *) mp_obj_str_get_str(args[1]);
+	size_t source_len = strlen((char *)source);
+	
+	uint16_t x = 0;
+
+	SFT_Glyph g_id;
+	SFT_GMetrics g_mtx;
+
+	uint8_t chr;
+
+	//Process every char
+	while(source_len--) {
+		chr = *source++;
+		
+		//Search the gliph_id within the Font
+		if(sft_lookup(&self->sft, chr, &g_id) < 0) {
+			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Unknown glyph"));
+		}
+
+		//Then Get Glyph Metrics
+		if(sft_gmetrics(&self->sft, g_id, &g_mtx) < 0) {
+			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Bad glyph metrics"));
+		}
+		
+		x+= (g_mtx.minWidth + 3) & ~3;
+	}
+
+    return mp_obj_new_int((int)x);
+}
+
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_len_obj, 2, 2, amoled_AMOLED_ttf_len);
+
 
 /*----------------------------------------------------------------------------------------------------
 Below are JPG related functions.
@@ -1968,7 +2215,7 @@ typedef struct {
 // buff = Pointer to read buffer
 // nbytes = Number of bytes to read/remove
 
-STATIC unsigned int in_func(JDEC *jd, uint8_t *buff, unsigned int nbyte) {               
+static unsigned int in_func(JDEC *jd, uint8_t *buff, unsigned int nbyte) {               
     IODEV *dev = (IODEV *)jd->device;   // Device identifier for the session (5th argument of jd_prepare function)
     unsigned int nread;
 
@@ -1989,7 +2236,7 @@ STATIC unsigned int in_func(JDEC *jd, uint8_t *buff, unsigned int nbyte) {
 // bitmap = Bitmap data to be output
 // rect = Rectangular region of output image
 
-STATIC int out_fast(JDEC *jd,void *bitmap, JRECT *rect) {
+static int out_fast(JDEC *jd,void *bitmap, JRECT *rect) {
     IODEV *dev = (IODEV *)jd->device;
     uint8_t *src, *dst;
     uint16_t y, bws, bwd;
@@ -2009,7 +2256,7 @@ STATIC int out_fast(JDEC *jd,void *bitmap, JRECT *rect) {
 
 
 // Draw jpg from a file at x, y
-STATIC mp_obj_t amoled_AMOLED_jpg(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_jpg(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
 	const char *filename = mp_obj_str_get_str(args[1]);
 	mp_int_t x = mp_obj_get_int(args[2]);
@@ -2019,7 +2266,7 @@ STATIC mp_obj_t amoled_AMOLED_jpg(size_t n_args, const mp_obj_t *args) {
 
     JRESULT res;	// Result code of TJpgDec API
     JDEC jdec;		// Decompression object
-    self->work = (void *)m_malloc(3100);	// Pointer to the work area
+    self->work = (void *)heap_caps_malloc(MAX_BUFFER, MALLOC_CAP_8BIT);	// Pointer to the work area
 	IODEV  devid;	// User defined device identifier
     size_t bufsize;
 	
@@ -2028,7 +2275,7 @@ STATIC mp_obj_t amoled_AMOLED_jpg(size_t n_args, const mp_obj_t *args) {
 	
 	if (devid.fp) {
 		// Prepare to decompress
-		res = jd_prepare(&jdec, in_func, self->work, 3100, &devid);
+		res = jd_prepare(&jdec, in_func, self->work, MAX_BUFFER, &devid);
 		if (res == JDR_OK) {
 			// Initialize output device
 			bufsize = 2 * jdec.width * jdec.height;
@@ -2039,7 +2286,7 @@ STATIC mp_obj_t amoled_AMOLED_jpg(size_t n_args, const mp_obj_t *args) {
 			}
 
 			if (self->buffer_size == 0) {
-				self->pixel_buffer = m_malloc(bufsize);
+				self->pixel_buffer = heap_caps_malloc(bufsize, MALLOC_CAP_8BIT);
 			}
 
 			if (!self->pixel_buffer)
@@ -2072,7 +2319,7 @@ STATIC mp_obj_t amoled_AMOLED_jpg(size_t n_args, const mp_obj_t *args) {
 				mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("jpg decompress failed."));
 			}
 			if (self->buffer_size == 0) {
-				m_free(self->pixel_buffer); // Discard frame buffer
+				heap_caps_free(self->pixel_buffer); // Discard frame buffer
 				self->pixel_buffer = MP_OBJ_NULL;
 			}
 			devid.fbuf = MP_OBJ_NULL;
@@ -2081,14 +2328,14 @@ STATIC mp_obj_t amoled_AMOLED_jpg(size_t n_args, const mp_obj_t *args) {
 		}
 		mp_close(devid.fp);
 	}
-	m_free(self->work); // Discard work area
+	heap_caps_free(self->work); // Discard work area
 	//Refresh display
 	refresh_display(self,0,0,self->width,self->height);
 	//refresh_display(self,x,y,jdec.width,jdec.height);
 	return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_jpg_obj, 4, 4, amoled_AMOLED_jpg);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_jpg_obj, 4, 4, amoled_AMOLED_jpg);
 
 
 // output function for jpg_decode
@@ -2097,7 +2344,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_jpg_obj, 4, 4, amoled_A
 // bitmap = Bitmap data to be output
 // rect = Rectangular region of output image
 
-STATIC int out_crop(JDEC *jd, void *bitmap, JRECT *rect) {                      
+static int out_crop(JDEC *jd, void *bitmap, JRECT *rect) {                      
     IODEV *dev = (IODEV *)jd->device;
 
     if (dev->left <= rect->right &&
@@ -2124,7 +2371,7 @@ STATIC int out_crop(JDEC *jd, void *bitmap, JRECT *rect) {
 }
 
 // Decode a jpg file and return it or a portion of it as a tuple containing a blittable buffer, the width and height of the buffer.
-STATIC mp_obj_t amoled_AMOLED_jpg_decode(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_jpg_decode(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
 	const char	*filename;
 	mp_int_t	x = 0, y = 0, width = 0, height = 0;
@@ -2137,7 +2384,7 @@ STATIC mp_obj_t amoled_AMOLED_jpg_decode(size_t n_args, const mp_obj_t *args) {
 			width  = mp_obj_get_int(args[4]);
 			height = mp_obj_get_int(args[5]);
 		}
-		self->work = (void *) m_malloc(3100); // Pointer to the work area
+		self->work = (void *) heap_caps_malloc(MAX_BUFFER, MALLOC_CAP_8BIT); // Pointer to the work area
 
 		JRESULT res;   // Result code of TJpgDec API
 		JDEC	jdec;  // Decompression object
@@ -2148,7 +2395,7 @@ STATIC mp_obj_t amoled_AMOLED_jpg_decode(size_t n_args, const mp_obj_t *args) {
 		devid.fp = self->fp;
 		if (devid.fp) {
 			// Prepare to decompress
-			res = jd_prepare(&jdec, in_func, self->work, 3100, &devid);
+			res = jd_prepare(&jdec, in_func, self->work, MAX_BUFFER, &devid);
 			if (res == JDR_OK) {
 				if (n_args < 6) {
 					x	   = 0;
@@ -2163,7 +2410,7 @@ STATIC mp_obj_t amoled_AMOLED_jpg_decode(size_t n_args, const mp_obj_t *args) {
 				devid.bottom = y + height - 1;
 
 				bufsize			   = 2 * width * height;
-				self->pixel_buffer = m_malloc(bufsize);
+				self->pixel_buffer = heap_caps_malloc(bufsize, MALLOC_CAP_8BIT);
 				if (self->pixel_buffer) {
 					memset(self->pixel_buffer, 0xBEEF, bufsize);
 				} else {
@@ -2183,7 +2430,7 @@ STATIC mp_obj_t amoled_AMOLED_jpg_decode(size_t n_args, const mp_obj_t *args) {
 			}
 			mp_close(devid.fp);
 		}
-		m_free(self->work); // Discard work area
+		heap_caps_free(self->work); // Discard work area
 
 		mp_obj_t result[3] = {
 			mp_obj_new_bytearray(bufsize, (mp_obj_t *) self->pixel_buffer),
@@ -2197,14 +2444,14 @@ STATIC mp_obj_t amoled_AMOLED_jpg_decode(size_t n_args, const mp_obj_t *args) {
 	return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_jpg_decode_obj, 2, 6, amoled_AMOLED_jpg_decode);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_jpg_decode_obj, 2, 6, amoled_AMOLED_jpg_decode);
 
 
 /*---------------------------------------------------------------------------------------------------
 Below are screencontroler related functions
 ----------------------------------------------------------------------------------------------------*/
 
-STATIC mp_obj_t amoled_AMOLED_mirror(mp_obj_t self_in, mp_obj_t mirror_x_in, mp_obj_t mirror_y_in) {
+static mp_obj_t amoled_AMOLED_mirror(mp_obj_t self_in, mp_obj_t mirror_x_in, mp_obj_t mirror_y_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
     if (mp_obj_is_true(mirror_x_in)) {
@@ -2221,10 +2468,10 @@ STATIC mp_obj_t amoled_AMOLED_mirror(mp_obj_t self_in, mp_obj_t mirror_x_in, mp_
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(amoled_AMOLED_mirror_obj, amoled_AMOLED_mirror);
+static MP_DEFINE_CONST_FUN_OBJ_3(amoled_AMOLED_mirror_obj, amoled_AMOLED_mirror);
 
 
-STATIC mp_obj_t amoled_AMOLED_swap_xy(mp_obj_t self_in, mp_obj_t swap_axes_in) {
+static mp_obj_t amoled_AMOLED_swap_xy(mp_obj_t self_in, mp_obj_t swap_axes_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (mp_obj_is_true(swap_axes_in)) {
         self->madctl_val |= 1 << 5;
@@ -2235,20 +2482,20 @@ STATIC mp_obj_t amoled_AMOLED_swap_xy(mp_obj_t self_in, mp_obj_t swap_axes_in) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(amoled_AMOLED_swap_xy_obj, amoled_AMOLED_swap_xy);
+static MP_DEFINE_CONST_FUN_OBJ_2(amoled_AMOLED_swap_xy_obj, amoled_AMOLED_swap_xy);
 
 
-STATIC mp_obj_t amoled_AMOLED_set_gap(mp_obj_t self_in, mp_obj_t x_gap_in, mp_obj_t y_gap_in) {
+static mp_obj_t amoled_AMOLED_set_gap(mp_obj_t self_in, mp_obj_t x_gap_in, mp_obj_t y_gap_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     self->x_gap = mp_obj_get_int(x_gap_in);
     self->y_gap = mp_obj_get_int(y_gap_in);
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(amoled_AMOLED_set_gap_obj, amoled_AMOLED_set_gap);
+static MP_DEFINE_CONST_FUN_OBJ_3(amoled_AMOLED_set_gap_obj, amoled_AMOLED_set_gap);
 
 
-STATIC mp_obj_t amoled_AMOLED_invert_color(mp_obj_t self_in, mp_obj_t invert_in) {
+static mp_obj_t amoled_AMOLED_invert_color(mp_obj_t self_in, mp_obj_t invert_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (mp_obj_is_true(invert_in)) {
         write_spi(self, LCD_CMD_INVON, NULL, 0);
@@ -2258,48 +2505,48 @@ STATIC mp_obj_t amoled_AMOLED_invert_color(mp_obj_t self_in, mp_obj_t invert_in)
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(amoled_AMOLED_invert_color_obj, amoled_AMOLED_invert_color);
+static MP_DEFINE_CONST_FUN_OBJ_2(amoled_AMOLED_invert_color_obj, amoled_AMOLED_invert_color);
 
 
-STATIC mp_obj_t amoled_AMOLED_disp_off(mp_obj_t self_in) {
+static mp_obj_t amoled_AMOLED_disp_off(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     write_spi(self, LCD_CMD_SLPIN, NULL, 0);
     write_spi(self, LCD_CMD_DISPOFF, NULL, 0);
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_disp_off_obj, amoled_AMOLED_disp_off);
+static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_disp_off_obj, amoled_AMOLED_disp_off);
 
 
-STATIC mp_obj_t amoled_AMOLED_disp_on(mp_obj_t self_in) {
+static mp_obj_t amoled_AMOLED_disp_on(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     write_spi(self, LCD_CMD_SLPOUT, NULL, 0);
     write_spi(self, LCD_CMD_DISPON, NULL, 0);
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_disp_on_obj, amoled_AMOLED_disp_on);
+static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_disp_on_obj, amoled_AMOLED_disp_on);
 
 
-STATIC mp_obj_t amoled_AMOLED_backlight_on(mp_obj_t self_in) {
+static mp_obj_t amoled_AMOLED_backlight_on(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     write_spi(self, LCD_CMD_WRDISBV, (uint8_t[]) { 0xFF }, 1);
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_backlight_on_obj, amoled_AMOLED_backlight_on);
+static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_backlight_on_obj, amoled_AMOLED_backlight_on);
 
 
-STATIC mp_obj_t amoled_AMOLED_backlight_off(mp_obj_t self_in) {
+static mp_obj_t amoled_AMOLED_backlight_off(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     write_spi(self, LCD_CMD_WRDISBV, (uint8_t[]) { 0x00 }, 1);
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_backlight_off_obj, amoled_AMOLED_backlight_off);
+static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_backlight_off_obj, amoled_AMOLED_backlight_off);
 
 
-STATIC mp_obj_t amoled_AMOLED_brightness(mp_obj_t self_in, mp_obj_t brightness_in) {
+static mp_obj_t amoled_AMOLED_brightness(mp_obj_t self_in, mp_obj_t brightness_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_int_t brightness = mp_obj_get_int(brightness_in);
 
@@ -2312,26 +2559,26 @@ STATIC mp_obj_t amoled_AMOLED_brightness(mp_obj_t self_in, mp_obj_t brightness_i
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(amoled_AMOLED_brightness_obj, amoled_AMOLED_brightness);
+static MP_DEFINE_CONST_FUN_OBJ_2(amoled_AMOLED_brightness_obj, amoled_AMOLED_brightness);
 
 
-STATIC mp_obj_t amoled_AMOLED_width(mp_obj_t self_in) {
+static mp_obj_t amoled_AMOLED_width(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     return mp_obj_new_int(self->width);
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_width_obj, amoled_AMOLED_width);
+static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_width_obj, amoled_AMOLED_width);
 
 
-STATIC mp_obj_t amoled_AMOLED_height(mp_obj_t self_in) {
+static mp_obj_t amoled_AMOLED_height(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     return mp_obj_new_int(self->height);
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_height_obj, amoled_AMOLED_height);
+static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_height_obj, amoled_AMOLED_height);
 
 
-STATIC mp_obj_t amoled_AMOLED_rotation(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_rotation(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     self->rotation = mp_obj_get_int(args[1]) % 4;
     if (n_args > 2) {
@@ -2351,10 +2598,10 @@ STATIC mp_obj_t amoled_AMOLED_rotation(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_rotation_obj, 2, 3, amoled_AMOLED_rotation);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_rotation_obj, 2, 3, amoled_AMOLED_rotation);
 
 
-STATIC mp_obj_t amoled_AMOLED_vscroll_area(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_vscroll_area(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     mp_int_t tfa = mp_obj_get_int(args[1]);
     mp_int_t vsa = mp_obj_get_int(args[2]);
@@ -2376,10 +2623,10 @@ STATIC mp_obj_t amoled_AMOLED_vscroll_area(size_t n_args, const mp_obj_t *args) 
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_vscroll_area_obj, 4, 4, amoled_AMOLED_vscroll_area);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_vscroll_area_obj, 4, 4, amoled_AMOLED_vscroll_area);
 
 
-STATIC mp_obj_t amoled_AMOLED_vscroll_start(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t amoled_AMOLED_vscroll_start(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     mp_int_t vssa = mp_obj_get_int(args[1]);
 
@@ -2409,11 +2656,14 @@ STATIC mp_obj_t amoled_AMOLED_vscroll_start(size_t n_args, const mp_obj_t *args)
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_vscroll_start_obj, 2, 3, amoled_AMOLED_vscroll_start);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_vscroll_start_obj, 2, 3, amoled_AMOLED_vscroll_start);
 
 
-// Mapping to Micropython
-STATIC const mp_rom_map_elem_t amoled_AMOLED_locals_dict_table[] = {
+/*---------------------------------------------------------------------------------------------------
+Below are C to Micropython library declarations
+----------------------------------------------------------------------------------------------------*/
+
+static const mp_rom_map_elem_t amoled_AMOLED_locals_dict_table[] = {
     /* { MP_ROM_QSTR(MP_QSTR_custom_init),   MP_ROM_PTR(&amoled_AMOLED_custom_init_obj)   }, */
     { MP_ROM_QSTR(MP_QSTR_version),         MP_ROM_PTR(&amoled_AMOLED_version_obj)         },
     { MP_ROM_QSTR(MP_QSTR_deinit),          MP_ROM_PTR(&amoled_AMOLED_deinit_obj)          },
@@ -2446,7 +2696,12 @@ STATIC const mp_rom_map_elem_t amoled_AMOLED_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_write),           MP_ROM_PTR(&amoled_AMOLED_write_obj)           },
     { MP_ROM_QSTR(MP_QSTR_write_len),       MP_ROM_PTR(&amoled_AMOLED_write_len_obj)       },
     { MP_ROM_QSTR(MP_QSTR_draw),            MP_ROM_PTR(&amoled_AMOLED_draw_obj)            },
-    { MP_ROM_QSTR(MP_QSTR_draw_len),        MP_ROM_PTR(&amoled_AMOLED_draw_len_obj)        },	
+    { MP_ROM_QSTR(MP_QSTR_draw_len),        MP_ROM_PTR(&amoled_AMOLED_draw_len_obj)        },
+	{ MP_ROM_QSTR(MP_QSTR_ttf_load_font),   MP_ROM_PTR(&amoled_AMOLED_ttf_load_font_obj)   },
+	{ MP_ROM_QSTR(MP_QSTR_ttf_init_font),   MP_ROM_PTR(&amoled_AMOLED_ttf_init_font_obj)   },
+	{ MP_ROM_QSTR(MP_QSTR_ttf_scale_font),  MP_ROM_PTR(&amoled_AMOLED_ttf_scale_font_obj)  },
+	{ MP_ROM_QSTR(MP_QSTR_ttf_draw),   		MP_ROM_PTR(&amoled_AMOLED_ttf_draw_obj)        },
+	{ MP_ROM_QSTR(MP_QSTR_ttf_len),   		MP_ROM_PTR(&amoled_AMOLED_ttf_len_obj)         },	
     { MP_ROM_QSTR(MP_QSTR_mirror),          MP_ROM_PTR(&amoled_AMOLED_mirror_obj)          },
     { MP_ROM_QSTR(MP_QSTR_swap_xy),         MP_ROM_PTR(&amoled_AMOLED_swap_xy_obj)         },
     { MP_ROM_QSTR(MP_QSTR_set_gap),         MP_ROM_PTR(&amoled_AMOLED_set_gap_obj)         },
@@ -2467,7 +2722,7 @@ STATIC const mp_rom_map_elem_t amoled_AMOLED_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_MONOCHROME),      MP_ROM_INT(COLOR_SPACE_MONOCHROME)             },
 };
 
-STATIC MP_DEFINE_CONST_DICT(amoled_AMOLED_locals_dict, amoled_AMOLED_locals_dict_table);
+static MP_DEFINE_CONST_DICT(amoled_AMOLED_locals_dict, amoled_AMOLED_locals_dict_table);
 
 
 #ifdef MP_OBJ_TYPE_GET_SLOT
@@ -2490,7 +2745,7 @@ const mp_obj_type_t amoled_AMOLED_type = {
 #endif
 
 
-STATIC const mp_map_elem_t mp_module_amoled_globals_table[] = {
+static const mp_map_elem_t mp_module_amoled_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),   MP_OBJ_NEW_QSTR(MP_QSTR_amoled)       },
     { MP_ROM_QSTR(MP_QSTR_AMOLED),     (mp_obj_t)&amoled_AMOLED_type         },
     { MP_ROM_QSTR(MP_QSTR_QSPIPanel),  (mp_obj_t)&amoled_qspi_bus_type       },
@@ -2507,7 +2762,7 @@ STATIC const mp_map_elem_t mp_module_amoled_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_WHITE),      MP_ROM_INT(WHITE)                     },
 };
 
-STATIC MP_DEFINE_CONST_DICT(mp_module_amoled_globals, mp_module_amoled_globals_table);
+static MP_DEFINE_CONST_DICT(mp_module_amoled_globals, mp_module_amoled_globals_table);
 
 
 const mp_obj_module_t mp_module_amoled = {
