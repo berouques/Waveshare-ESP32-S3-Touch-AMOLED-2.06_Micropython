@@ -13,6 +13,7 @@
 ![polygons](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/polygons_thumb.jpg?raw=true)
 ![filled polygons](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/filled_polygons_thumb.jpg?raw=true)
 ![jpeg](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/jpeg_thumb.jpg?raw=true)
+examples where established with a Waveshare AMOLED 1.8"
 
 This graphic library is dedicated to :
 
@@ -404,6 +405,7 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
 
 
 
