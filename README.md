@@ -3,7 +3,7 @@
 --------------------------------------------------------------------------------------------------
 
 ## /!\ NOW WORKS WITH TRUETYPE FONTS /!\ 
-
+[TTF rendering](./images/ttf_thumb.jpg)
 
 This graphic library is dedicated to :
 
@@ -395,3 +395,4 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
