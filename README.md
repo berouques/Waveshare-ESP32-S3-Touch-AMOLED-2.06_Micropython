@@ -1,8 +1,11 @@
 
-## Lilygo and Waveshare Amoled Series Micropython firmware with Graphic Support (this is not LVGL)
+## Lilygo and Waveshare Amoled Series Micropython firmware with Graphic Support
+**NB : this is a totally different project from LVGL**
+
 --------------------------------------------------------------------------------------------------
 
-## /!\ NOW WORKS WITH TRUETYPE FONTS /!\ 
+**Updated 30/11/2025 : NOW WORKS WITH TRUETYPE FONTS THANKS TO LIBSCHRIFT INTEGRATION**
+
 ![TTF](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/ttf_thumb.jpg?raw=true)
 ![variable font](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/variable_font_thumb.jpg?raw=true)
 ![filled variable font](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/filled_variable_font_thumb.jpg?raw=true)
@@ -14,7 +17,9 @@
 ![filled polygons](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/filled_polygons_thumb.jpg?raw=true)
 ![jpeg](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/jpeg_thumb.jpg?raw=true)
 
-Above examples where established with a Waveshare AMOLED 1.8"
+Above examples where established with a Waveshare AMOLED 1.8", Top corner values are Nb of objects redered every second...
+
+--------------------------------------------------------------------------------------------------
 
 **This graphic library is dedicated to :**
 
@@ -406,6 +411,7 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
 
 
 
