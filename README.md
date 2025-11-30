@@ -45,7 +45,7 @@ In a more general way, requirements are WIDTH x HEIGHT x 2 bytes or ram.
 
 Latest firmware is build with
 - Micropython 1.26.1
-- ESP IDF toolchain 5.5.2
+- ESP IDF toolchain 5.5.1
 
 
 Contents:
@@ -411,6 +411,7 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
 
 
 
