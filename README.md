@@ -3,7 +3,16 @@
 --------------------------------------------------------------------------------------------------
 
 ## /!\ NOW WORKS WITH TRUETYPE FONTS /!\ 
-[TTF rendering](./Images/ttf_thumb.jpg)
+![TTF](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/ttf_thumb.jpg?raw=true)
+![variable font](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/variable_font_thumb.jpg?raw=true)
+![filled variable font](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/filled_variable_font_thumb.jpg?raw=true)
+![rectangles](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/rectangles_thumb.jpg?raw=true)
+![circles](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/circles_thumb.jpg?raw=true)
+![filled circles](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/filled_circles_thumb.jpg?raw=true)
+![filled triangles](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/filled_triangles_thumb.jpg?raw=true)
+![polygons](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/polygons_thumb.jpg?raw=true)
+![filled polygons](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/filled_polygons_thumb.jpg?raw=true)
+![jpeg](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/jpeg_thumb.jpg?raw=true)
 
 This graphic library is dedicated to :
 
@@ -395,5 +404,6 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
 
 
