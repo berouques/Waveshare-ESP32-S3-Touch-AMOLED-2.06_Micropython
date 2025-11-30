@@ -19,6 +19,8 @@
 
 Above examples where established with a Waveshare AMOLED 1.8", Top corner values are Nb of objects redered every second...
 
+![See the demo on Youtube](https://www.youtube.com/watch?v=m3pqW5jGypQ)
+
 --------------------------------------------------------------------------------------------------
 
 **This graphic library is dedicated to :**
@@ -411,6 +413,7 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
 
 
 
