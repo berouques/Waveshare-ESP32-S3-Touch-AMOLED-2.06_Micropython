@@ -97,7 +97,7 @@ extern "C" {
 #define COLMOD_CAL_18   	0x66
 #define COLMOD_CAL_24   	0x77
 
-// Color definitions
+// Color definitions in 16bpp RGB (litte indian : 1F00 => 001F mean Full Blue)
 
 #define BLACK   0x0000
 #define BLUE    0x1F00
@@ -115,6 +115,7 @@ extern "C" {
 typedef struct	_Point					Point;
 typedef struct	_Polygon				Polygon;
 typedef struct	_amoled_rotation_t		amoled_rotation_t;
+typedef struct  _bpp_process_t			bpp_process_t;
 typedef struct	_amoled_AMOLED_obj_t	amoled_AMOLED_obj_t;
 typedef struct	_IODEV					IODEV;
 
@@ -134,6 +135,14 @@ struct _amoled_rotation_t {
     uint16_t height;
     uint16_t colstart;
     uint16_t rowstart;
+};
+
+struct _bpp_process_t {
+    uint32_t 	fltr_col_rd;
+    uint8_t 	bitsw_col_rd;
+    uint32_t	fltr_col_gr;
+    uint8_t 	bitsw_col_gr;
+	uint32_t	fltr_col_bl;
 };
 
 struct _amoled_AMOLED_obj_t {
@@ -169,6 +178,7 @@ struct _amoled_AMOLED_obj_t {
 	uint8_t 	color_space;			// 0 : RGB / 1 : BGR / 2 : Mono
     uint8_t 	bpp;					// Diplay bit per pixel : 16 / 18 / 24
     uint8_t 	Bpp;					// Display Byte per pixel : 2 / 3 / 3
+	bpp_process_t bpp_process;				// bpp process filter and switches
 
 	//Frame Buffer related
     bool 		auto_refresh;	// True => Every action is directly rendered to display
