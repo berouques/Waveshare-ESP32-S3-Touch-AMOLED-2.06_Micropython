@@ -20,9 +20,7 @@ display.ttf_init_font()
 
 text = "Hello!"
 
-display.reset()
 display.init()
-display.brightness(255)
 
 display.ttf_scale_font(16)
 display.ttf_draw(text,50,50,amoled.RED)
@@ -31,7 +29,8 @@ display.ttf_scale_font(32)
 display.ttf_draw(text,50,100,amoled.GREEN)
 
 display.ttf_scale_font(64)
-display.ttf_draw(text,50,180,amoled.BLUE)
+display.ttf_draw(text,50,180,amoled.MAGENTA)
 
 display.ttf_scale_font(128)
-display.ttf_draw(text,50,320,amoled.MAGENTA)
+display.ttf_draw(text,50,320,amoled.BLUE)
+
