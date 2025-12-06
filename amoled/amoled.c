@@ -1959,8 +1959,13 @@ static mp_obj_t amoled_AMOLED_ttf_load_font(size_t n_args, const mp_obj_t *args)
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_load_font_obj, 2, 2, amoled_AMOLED_ttf_load_font);
 
 //Initialise a font after loading, return True if everything is ok, False elsewhere
+//ttf_init_font([kerning_correction, alpha_correction]) both are True by default
 static mp_obj_t amoled_AMOLED_ttf_init_font(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+	mp_int_t kerning = (n_args > 1) ? mp_obj_get_int(args[1]) : 1;
+	mp_int_t alpha = (n_args > 2) ? mp_obj_get_int(args[2]) : 1;
+	self->kerni_corr = (kerning==1); 
+	self->alpha_corr = (alpha==1);			
 	
 	if(init_font(self->sft.font) == 0) {
 		return mp_const_true;
@@ -1969,7 +1974,7 @@ static mp_obj_t amoled_AMOLED_ttf_init_font(size_t n_args, const mp_obj_t *args)
 	}
 }
 
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_init_font_obj, 1, 1, amoled_AMOLED_ttf_init_font);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_init_font_obj, 1, 3, amoled_AMOLED_ttf_init_font);
 
 
 //Scale font ttf_scale_font(x_scale, y_scale) 
@@ -2030,22 +2035,19 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 	uint16_t ymax = y0;
 
 	//Get bpp process for antialiasing process
-
-    uint32_t 	fltr_col_rd = self->bpp_process.fltr_col_rd;
-    uint8_t 	bitsw_col_rd = self->bpp_process.bitsw_col_rd;
-    uint32_t	fltr_col_gr = self->bpp_process.fltr_col_gr;
-    uint8_t 	bitsw_col_gr = self->bpp_process.bitsw_col_gr;
+	uint32_t 	fltr_col_rd = self->bpp_process.fltr_col_rd;
+	uint8_t 	bitsw_col_rd = self->bpp_process.bitsw_col_rd;
+	uint32_t	fltr_col_gr = self->bpp_process.fltr_col_gr;
+	uint8_t 	bitsw_col_gr = self->bpp_process.bitsw_col_gr;
 	uint32_t	fltr_col_bl = self->bpp_process.fltr_col_bl;
 
 	//Process Fg color decomposition
-
 	mp_int_t fg_color_sw = (fg_color >> 8) | (fg_color << 8); //Because of Little Indian
 	mp_int_t fg_color_rd = (fg_color_sw & fltr_col_rd) >> bitsw_col_rd;
 	mp_int_t fg_color_gr = (fg_color_sw & fltr_col_gr) >> bitsw_col_gr;
 	mp_int_t fg_color_bl = (fg_color_sw & fltr_col_bl);
-	
+		
 	// Variable to process color mitigation and final color
-	
 	mp_int_t mfg_color_rd = 0;
 	mp_int_t mfg_color_gr = 0;
 	mp_int_t mfg_color_bl = 0;
@@ -2076,8 +2078,8 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Bad glyph metrics"));
 		}
 		
-		//Check if need space correction
-		if(left_glyph != 0) {
+		//Check if need space correction (if kerning activated)
+		if(self->kerni_corr && (left_glyph != 0)) {
 			sft_kerning(&self->sft, left_glyph, chr, &kerning);
 			left_glyph = chr;  // Update last_glyph
 		}
@@ -2115,16 +2117,16 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 						if (bg_filled) { self->frame_buffer[buf_idx] = bg_color; }
 					break;
 
-					default: {   //Otherwise, moderate color 
-						mfg_color_rd = ((gl_data * fg_color_rd) >> 8) << bitsw_col_rd;
-						mfg_color_gr = ((gl_data * fg_color_gr) >> 8) << bitsw_col_gr;
-						mfg_color_bl = (gl_data * fg_color_bl) >> 8;
-						mfg_color = ( mfg_color_rd | mfg_color_gr | mfg_color_bl);
-						self->frame_buffer[buf_idx] = (uint16_t) (mfg_color >> 8) | (mfg_color << 8); //Because of little indian
+					default:	//Otherwise, moderate color if aliasing activated
+						if(self->alpha_corr) {
+							mfg_color_rd = ((gl_data * fg_color_rd) >> 8) << bitsw_col_rd;
+							mfg_color_gr = ((gl_data * fg_color_gr) >> 8) << bitsw_col_gr;
+							mfg_color_bl = (gl_data * fg_color_bl) >> 8;
+							mfg_color = ( mfg_color_rd | mfg_color_gr | mfg_color_bl);
+							self->frame_buffer[buf_idx] = (uint16_t) (mfg_color >> 8) | (mfg_color << 8); //Because of little indian
 						}
 					break;
 				}
-				
 				buf_idx++;    // Next framebuffer pixel
 				gl_idx ++;	  // Next glyph pixel
 			}
