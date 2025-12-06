@@ -190,6 +190,8 @@ struct _amoled_AMOLED_obj_t {
 
 	//TTF Font support
 	SFT 		sft;			// True Type font object
+	bool		kerni_corr;		// Apply Kerning correction 
+	bool		alpha_corr;		// Apply Aliasing correction
 	
 };
 
