@@ -460,20 +460,7 @@ static MP_DEFINE_CONST_FUN_OBJ_0(amoled_AMOLED_version_obj, amoled_AMOLED_versio
 Below are buffers and screen buffers related function.
 ------------------------------------------------------------------------------------------------------*/
 
-
-static uint8_t get_color(uint8_t bpp) {
-    uint8_t color = 0;
-    int i;
-
-    for (i = 0; i < bpp; i++) {
-        color <<= 1;
-        color |= (bitmap_data[bs_bit / 8] & 1 << (7 - (bs_bit % 8))) > 0;
-        bs_bit++;
-    }
-    return color;
-}
-
-
+//Return color from R,G,B values
 static uint16_t colorRGB(uint8_t r, uint8_t g, uint8_t b) {
     uint16_t c = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3);
     return ((((c) >> 8) & 0x00FF) | (((c) << 8) & 0xFF00));
@@ -1479,40 +1466,20 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_polygon_obj, 5, 8,
 Below are Monospaced fond related functions
 ------------------------------------------------------------------------------------------------------*/
 
-//	text(font_module, s, x, y[, fg, bg])
+//	text(font_module, string, x, y[, fg, bg])
 static mp_obj_t amoled_AMOLED_text(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    uint8_t single_char_s;
-    const uint8_t *source = NULL;
-    size_t source_len = 0;
-	size_t buf_idx;
-
-    // extract arguments
     mp_obj_module_t *font = MP_OBJ_TO_PTR(args[1]);  		// Arg n°1 is the font pointer (font)
-
-    if (mp_obj_is_int(args[2])) {
-        mp_int_t c = mp_obj_get_int(args[2]);    			// Arg n°2 is wether a 1 byte single caracter  (c)
-        single_char_s = (c & 0xff);
-        source = &single_char_s;
-        source_len = 1;
-    } else if (mp_obj_is_str(args[2])) { 					// or a sting
-        source = (uint8_t *) mp_obj_str_get_str(args[2]);
-        source_len = strlen((char *)source);
-    } else if (mp_obj_is_type(args[2], &mp_type_bytes)) {	// or a byte_array
-        mp_obj_t text_data_buff = args[2];
-        mp_buffer_info_t text_bufinfo;
-        mp_get_buffer_raise(text_data_buff, &text_bufinfo, MP_BUFFER_READ);	// text_bufinfo is activated text_data_buff receives data 
-        source = text_bufinfo.buf;							// in every case the string is named source 
-        source_len = text_bufinfo.len;						// its length is source_len
-    } else {
-        mp_raise_TypeError(MP_ERROR_TEXT("text requires either int, str or bytes."));
-        return mp_const_none;
-    }
-
+	const char *str_8 = (char *) mp_obj_str_get_str(args[2]);
+	size_t str_8_len = strlen(str_8);
     mp_int_t x = mp_obj_get_int(args[3]);					// Arg n°3 is x_position x
-	mp_int_t x0 = x;
     mp_int_t y = mp_obj_get_int(args[4]);					// Arg n°4 is y_position y
+	mp_int_t fg_color = (n_args > 5) ? mp_obj_get_int(args[5]) : WHITE; // Arg 5 if front Color;
+    mp_int_t bg_color  = (n_args > 6) ? mp_obj_get_int(args[6]) : BLACK; // Aarg 6 is back color;
+	// if no Arg 6, we will not overwrite frame buffer	
+	bool bg_filled = (n_args > 6) ? true : false;
 	
+	//Map font datas
     mp_obj_dict_t *dict = MP_OBJ_TO_PTR(font->globals);		// dict points to Font object (font)
     const uint8_t width = mp_obj_get_int(mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_WIDTH)));	 	// witdh is the font width
     const uint8_t height = mp_obj_get_int(mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_HEIGHT)));		// height...
@@ -1524,31 +1491,19 @@ static mp_obj_t amoled_AMOLED_text(size_t n_args, const mp_obj_t *args) {
     mp_get_buffer_raise(font_data_buff, &bufinfo, MP_BUFFER_READ);										// 
     const uint8_t *font_data = bufinfo.buf;																// font_data is bufinfo.buf data pointer  
 
-    uint16_t fg_color;
-    uint16_t bg_color;
-
-    if (n_args > 5) {	// Arg n°5 is the front color, WHITE by default
-        fg_color = mp_obj_get_int(args[5]);
-    } else {
-        fg_color = WHITE;
-    }
-
-    if (n_args > 6) {	// Arg n°5 is the backgroun color
-        bg_color = mp_obj_get_int(args[6]);
-    } else {
-        bg_color = BLACK;
-    }
-
     uint8_t wide = width / 8; // wide = width in Bytes for a single char (ex 16bit large font is 2 bytes per line)
-    uint8_t chr;
+	mp_int_t x0 = x;
+	char chr;		// String char	
 	
-    while (source_len--) {	// for the full source (in bytes)
-        chr = *source++;	// for every characteres in string as char
+	//Process every char
+	for (uint8_t i = 0; i < str_8_len; i++) {
+		chr = str_8[i];
         if (chr >= first && chr <= last) {	// if string character is in the font character range 
 			if (x + width > self->max_width_value) {
 				return mp_const_none;  // return if char is away from dsplay
 			}
             uint16_t chr_idx = (chr - first) * (height * wide);	// chr_index is the charactere index in the font file 
+			size_t buf_idx;  //bud_index is the framebuffer index
 			for (uint8_t line = 0; line < height; line++) {		// for every line of the font character
 				buf_idx = (y + line) * self->width + x;	// buf_idx is the frame buffer start index for each line
 				for (uint8_t line_byte = 0; line_byte < wide; line_byte++) { 	//for wide bytes of every line 
@@ -1557,14 +1512,14 @@ static mp_obj_t amoled_AMOLED_text(size_t n_args, const mp_obj_t *args) {
 						if (chr_data >> (bit - 1) & 1) {	// 1 = Front color / 0 = back_color
                             self->frame_buffer[buf_idx] = fg_color;	
                         } else {
-                            self->frame_buffer[buf_idx] = bg_color;
+							if (bg_filled) { self->frame_buffer[buf_idx] = bg_color; }  //Fill background only if asked
                         }
                         buf_idx++;	// next frame buffer index and proceed next font bit
                     }
-                    chr_idx++;													// next font line_byte
+                    chr_idx++;	// next font line_byte
                 }																			
             }																// next line
-            x += width;				// next chart ==> x0 moves to next place
+            x += width;	 // next chart ==> x0 moves to next place
         }	// if not in font character range = Do nothing
     } // all source character proceeded
 	refresh_display(self,x0,y,x - x0,height);
@@ -1616,47 +1571,23 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_text_len_obj, 3, 3, amo
 Below are Variable Fonts related functions
 ----------------------------------------------------------------------------------------------------*/
 
-//	write(font_module, s, x, y[, fg, bg, background_tuple, fill]) with background_tuple (bitmap_buffer, width, height)
+//	write(font_module, string, x, y[, fg, bg)
 static mp_obj_t amoled_AMOLED_write(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     mp_obj_module_t *font = MP_OBJ_TO_PTR(args[1]);
-	size_t buf_idx;
-
-    mp_int_t x = mp_obj_get_int(args[3]);
-	mp_int_t x0 = x;
-    mp_int_t y = mp_obj_get_int(args[4]);
+	const char *str_8 = (char *) mp_obj_str_get_str(args[2]);
+	size_t str_8_len = strlen(str_8);
+	mp_int_t x = mp_obj_get_int(args[3]);
+	mp_int_t y = mp_obj_get_int(args[4]);
+    mp_int_t fg_color = (n_args > 5) ? mp_obj_get_int(args[5]) : WHITE; // Arg 5 if front Color;
+    mp_int_t bg_color  = (n_args > 6) ? mp_obj_get_int(args[6]) : BLACK; // Aarg 6 is back color;
+	// if no Arg 6, we will not overwrite frame buffer	
+	bool bg_filled = (n_args > 6) ? true : false;
 	
-    mp_int_t fg_color;
-    mp_int_t bg_color;
-
-    fg_color = (n_args > 5) ? mp_obj_get_int(args[5]) : WHITE; // Arg 5 if front Color
-    bg_color = (n_args > 6) ? mp_obj_get_int(args[6]) : BLACK; // Aarg 6 is back color
-
-    mp_obj_t *tuple_data = NULL;
-    size_t tuple_len = 0;
-
-    mp_buffer_info_t background_bufinfo;
-    uint16_t background_width = 0;
-    uint16_t background_height = 0;
-    uint16_t *background_data = NULL;
-
-    if (n_args > 7) {		//Arg 7 is backgroung tupple Data
-        mp_obj_tuple_get(args[7], &tuple_len, &tuple_data);
-        if (tuple_len > 2) {
-            mp_get_buffer_raise(tuple_data[0], &background_bufinfo, MP_BUFFER_READ);
-            background_data = background_bufinfo.buf;
-            background_width = mp_obj_get_int(tuple_data[1]);
-            background_height = mp_obj_get_int(tuple_data[2]);
-        }
-    }
-
-    bool fill = (n_args > 8) ? mp_obj_is_true(args[8]) : false;  //Arg8 is Fill bool for buffer background
-
+	//Map font datas
     mp_obj_dict_t *dict = MP_OBJ_TO_PTR(font->globals);
-    const uint8_t bpp = mp_obj_get_int(mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_BPP)));
     const uint8_t height = mp_obj_get_int(mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_HEIGHT)));  // height is the font height
     const uint8_t offset_width = mp_obj_get_int(mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_OFFSET_WIDTH)));
-    //const uint8_t max_width = mp_obj_get_int(mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_MAX_WIDTH)));
 
     mp_obj_t widths_data_buff = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_WIDTHS));  
     mp_buffer_info_t widths_bufinfo;
@@ -1671,41 +1602,37 @@ static mp_obj_t amoled_AMOLED_write(size_t n_args, const mp_obj_t *args) {
     mp_obj_t bitmaps_data_buff = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_BITMAPS));
     mp_buffer_info_t bitmaps_bufinfo;
     mp_get_buffer_raise(bitmaps_data_buff, &bitmaps_bufinfo, MP_BUFFER_READ);
-    bitmap_data = bitmaps_bufinfo.buf; //bitmap_data is background data
-
-    // if fill is set, and background bitmap data is available copy the background
-    // bitmap data into the buffer. The background buffer must be the size of the
-    // widest character in the font.
-    if (fill && background_data) {
-        //memcpy(self->frame_buffer, background_data, background_width * background_height * 2);
-    }
+    bitmap_data = bitmaps_bufinfo.buf; //bitmap_data is font data
 
     mp_obj_t map_obj = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_MAP));
     GET_STR_DATA_LEN(map_obj, map_data, map_len);
-    GET_STR_DATA_LEN(args[2], str_data, str_len);
-    const byte *s = str_data, *top = str_data + str_len;  //s point the string data and top is the last data
 	
-    while (s < top) {
-        unichar ch;
-        ch = utf8_get_char(s); // ch = current char
-        s = utf8_next_char(s); // s = next
+	size_t buf_idx;
+	mp_int_t x0 = x;
+	char chr;		// String char
+
+	//Process every char
+	for (uint8_t i = 0; i < str_8_len; i++) {
+		chr = str_8[i];	
 
         const byte *map_s = map_data, *map_top = map_data + map_len;
         uint16_t char_index = 0;
 
-        while (map_s < map_top) {
+        //Basic in line serch loop
+		while (map_s < map_top) {
             unichar map_ch;
             map_ch = utf8_get_char(map_s);
             map_s = utf8_next_char(map_s);
 
 			buf_idx = 0;  // Init buffer index
-				
-            if (ch == map_ch) {
+			
+			//If found get bit datas
+            if (chr == map_ch) {
                 uint8_t width = widths_data[char_index];    //width is the character width
 				if (x + width > self->max_width_value) {
 					return mp_const_none;  // return if char is away from dsplay
 				}
-                bs_bit = 0;
+                bs_bit = 0;   //bs_bit will point to the font character 1st bit; it can be offseted from 1 to 3 bits !
                 switch (offset_width) {
                     case 1:
                         bs_bit = offsets_data[char_index * offset_width];
@@ -1723,21 +1650,16 @@ static mp_obj_t amoled_AMOLED_write(size_t n_args, const mp_obj_t *args) {
                         break;
                 }
 
-                uint16_t color = 0;
-							
+				//Render to display		
                 for (uint16_t line = 0; line < height; line++) {  // for every line of char	
 					buf_idx = (y + line) * self->width + x;	// buf_idx is the frame buffer start index for each line
                     for (uint16_t line_bits = 0; line_bits < width; line_bits++) { //for every bit of every line
-                        if (background_data && (line_bits <= background_width && line <= background_height)) {
-                            if (get_color(bpp) == bg_color) {
-                                color = background_data[(line * background_width + line_bits)];
-                            } else {
-                                color = fg_color;
-                            }
-                        } else {
-                            color = get_color(bpp) ? fg_color : bg_color;  //color = front_color else back_color
-                        }
-                        self->frame_buffer[buf_idx] = color;
+						if ((bitmap_data[bs_bit / 8] & 1 << (7 - (bs_bit % 8)))) { //Check if pixel bit if 1 or 0
+							self->frame_buffer[buf_idx] = fg_color;
+						} else {
+							if (bg_filled) { self->frame_buffer[buf_idx] = bg_color; }  //Fill background only if asked
+						}
+						bs_bit++;
 						buf_idx++;
                     }
 				}			
@@ -1754,70 +1676,63 @@ static mp_obj_t amoled_AMOLED_write(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_write_obj, 5, 9, amoled_AMOLED_write);
 
 
+//	write_len(font_module, string)
 static mp_obj_t amoled_AMOLED_write_len(size_t n_args, const mp_obj_t *args) {
     mp_obj_module_t *font = MP_OBJ_TO_PTR(args[1]);
+	//Map font properties
     mp_obj_dict_t *dict = MP_OBJ_TO_PTR(font->globals);
+	mp_obj_t map_obj = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_MAP));
+    GET_STR_DATA_LEN(map_obj, map_data, map_len);
     mp_obj_t widths_data_buff = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_WIDTHS));
     mp_buffer_info_t widths_bufinfo;
     mp_get_buffer_raise(widths_data_buff, &widths_bufinfo, MP_BUFFER_READ);
     const uint8_t *widths_data = widths_bufinfo.buf;
 
-    uint16_t print_width = 0;
+    uint16_t x = 0;
+	const char *str_8 = (char *) mp_obj_str_get_str(args[2]);
+	size_t str_8_len = strlen(str_8);
+	char chr;		// String char
 
-    mp_obj_t map_obj = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_MAP));
-    GET_STR_DATA_LEN(map_obj, map_data, map_len);
-    GET_STR_DATA_LEN(args[2], str_data, str_len);
-    const byte *s = str_data, *top = str_data + str_len;
+	//Process every char
+	for (uint8_t i = 0; i < str_8_len; i++) {
+		chr = str_8[i];
 
-    while (s < top) {
-        unichar ch;
-        ch = utf8_get_char(s);
-        s = utf8_next_char(s);
-
+		//map_s & map_top are font char index min and max
         const byte *map_s = map_data, *map_top = map_data + map_len;
-        uint16_t char_index = 0;
+        uint16_t search_index = 0;
 
+		//Basic in-line search
         while (map_s < map_top) {
             unichar map_ch;
             map_ch = utf8_get_char(map_s);
             map_s = utf8_next_char(map_s);
 
-            if (ch == map_ch) {
-                print_width += widths_data[char_index];
+			//if found, increase caculated width
+            if (chr == map_ch) {
+                x += widths_data[search_index];
                 break;
             }
-            char_index++;
+            search_index++;
         }
     }
 
-    return mp_obj_new_int(print_width);
+    return mp_obj_new_int(x);
 }
 
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_write_len_obj, 3, 3, amoled_AMOLED_write_len);
 
 /*---------------------------------------------------------------------------------------------------
-Below are Hersey Vectorial Fonts related functions
+Below are Hershey Vectorial Fonts related functions
 ----------------------------------------------------------------------------------------------------*/
 
-//	draw(font_module, s, x, y[, fg, bg])
+//	draw(font, string , x, y[, fg, bg])
 static mp_obj_t amoled_AMOLED_draw(size_t n_args, const mp_obj_t *args) {
-    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    char single_char_s[] = {0, 0};
-    const char *s;
-
+    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);	
     mp_obj_module_t *hershey = MP_OBJ_TO_PTR(args[1]);
-
-    if (mp_obj_is_int(args[2])) {
-        mp_int_t c = mp_obj_get_int(args[2]);
-        single_char_s[0] = c & 0xff;
-        s = single_char_s;
-    } else {
-        s = mp_obj_str_get_str(args[2]);
-    }
-
+	const char *str_8 = (char *) mp_obj_str_get_str(args[2]);
+	size_t str_8_len = strlen(str_8);
     mp_int_t x = mp_obj_get_int(args[3]);
     mp_int_t y = mp_obj_get_int(args[4]);
-
     mp_int_t color = (n_args > 5) ? mp_obj_get_int(args[5]) : WHITE;
 
     mp_float_t scale = 1.0;
@@ -1830,12 +1745,12 @@ static mp_obj_t amoled_AMOLED_draw(size_t n_args, const mp_obj_t *args) {
         }
     }
 
+	//Map Font properties
     mp_obj_dict_t *dict = MP_OBJ_TO_PTR(hershey->globals);
     mp_obj_t *index_data_buff = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_INDEX));
     mp_buffer_info_t index_bufinfo;
     mp_get_buffer_raise(index_data_buff, &index_bufinfo, MP_BUFFER_READ);
     uint8_t *index = index_bufinfo.buf;
-
     mp_obj_t *font_data_buff = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_FONT));
     mp_buffer_info_t font_bufinfo;
     mp_get_buffer_raise(font_data_buff, &font_bufinfo, MP_BUFFER_READ);
@@ -1851,44 +1766,46 @@ static mp_obj_t amoled_AMOLED_draw(size_t n_args, const mp_obj_t *args) {
     char c;
     int16_t ii;
 
-    while ((c = *s++)) {
-        if (c >= 32 && c <= 127) {
-            ii = (c - 32) * 2;
+	for (uint8_t i = 0; i < str_8_len; i++) {
+    //while ((c = *s++)) {
+			c = str_8[i];
+			if (c >= 32 && c <= 127) {
+				ii = (c - 32) * 2;
 
-            int16_t offset = index[ii] | (index[ii + 1] << 8);
-            int16_t length = font[offset++];
-            int16_t left = (int)(scale * (font[offset++] - 0x52) + 0.5);
-            int16_t right = (int)(scale * (font[offset++] - 0x52) + 0.5);
-            int16_t width = right - left;
+				int16_t offset = index[ii] | (index[ii + 1] << 8);
+				int16_t length = font[offset++];
+				int16_t left = (int)(scale * (font[offset++] - 0x52) + 0.5);
+				int16_t right = (int)(scale * (font[offset++] - 0x52) + 0.5);
+				int16_t width = right - left;
 
-            if (length) {
-                int16_t i;
-                for (i = 0; i < length; i++) {
-                    if (font[offset] == ' ') {
-                        offset += 2;
-                        penup = true;
-                        continue;
-                    }
+				if (length) {
+					int16_t i;
+					for (i = 0; i < length; i++) {
+						if (font[offset] == ' ') {
+							offset += 2;
+							penup = true;
+							continue;
+						}
 
-                    int16_t vector_x = (int)(scale * (font[offset++] - 0x52) + 0.5);
-                    int16_t vector_y = (int)(scale * (font[offset++] - 0x52) + 0.5);
+						int16_t vector_x = (int)(scale * (font[offset++] - 0x52) + 0.5);
+						int16_t vector_y = (int)(scale * (font[offset++] - 0x52) + 0.5);
 
-                    if (!i || penup) {
-                        from_x = pos_x + vector_x - left;
-                        from_y = pos_y + vector_y;
-                    } else {
-                        to_x = pos_x + vector_x - left;
-                        to_y = pos_y + vector_y;
+						if (!i || penup) {
+							from_x = pos_x + vector_x - left;
+							from_y = pos_y + vector_y;
+						} else {
+							to_x = pos_x + vector_x - left;
+							to_y = pos_y + vector_y;
 
-                        line(self, from_x, from_y, to_x, to_y, color);
-                        from_x = to_x;
-                        from_y = to_y;
-                    }
-                    penup = false;
-                }
-            }
-            pos_x += width;
-        }
+							line(self, from_x, from_y, to_x, to_y, color);
+							from_x = to_x;
+							from_y = to_y;
+						}
+						penup = false;
+					}
+				}
+				pos_x += width;
+			}
     }
 
     return mp_const_none;
@@ -1898,18 +1815,10 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_draw_obj, 5, 7, amoled_
 
 
 static mp_obj_t amoled_AMOLED_draw_len(size_t n_args, const mp_obj_t *args) {
-    char single_char_s[] = {0, 0};
-    const char *s;
-
+    //amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]); // No use 
     mp_obj_module_t *hershey = MP_OBJ_TO_PTR(args[1]);
-
-    if (mp_obj_is_int(args[2])) {
-        mp_int_t c = mp_obj_get_int(args[2]);
-        single_char_s[0] = c & 0xff;
-        s = single_char_s;
-    } else {
-        s = mp_obj_str_get_str(args[2]);
-    }
+	const char *str_8 = (char *) mp_obj_str_get_str(args[2]);
+	size_t str_8_len = strlen(str_8);
 
     mp_float_t scale = 1.0;
     if (n_args > 3) {
@@ -1921,12 +1830,12 @@ static mp_obj_t amoled_AMOLED_draw_len(size_t n_args, const mp_obj_t *args) {
         }
     }
 
+	//Map font properties
     mp_obj_dict_t *dict = MP_OBJ_TO_PTR(hershey->globals);
     mp_obj_t *index_data_buff = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_INDEX));
     mp_buffer_info_t index_bufinfo;
     mp_get_buffer_raise(index_data_buff, &index_bufinfo, MP_BUFFER_READ);
     uint8_t *index = index_bufinfo.buf;
-
     mp_obj_t *font_data_buff = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_FONT));
     mp_buffer_info_t font_bufinfo;
     mp_get_buffer_raise(font_data_buff, &font_bufinfo, MP_BUFFER_READ);
@@ -1936,7 +1845,8 @@ static mp_obj_t amoled_AMOLED_draw_len(size_t n_args, const mp_obj_t *args) {
     char c;
     int16_t ii;
 
-    while ((c = *s++)) {
+	for (uint8_t i = 0; i < str_8_len; i++) {
+		c = str_8[i];
         if (c >= 32 && c <= 127) {
             ii = (c - 32) * 2;
 
