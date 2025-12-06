@@ -56,6 +56,9 @@ def main():
             filled = random.randint(0,1)
             kind = random.randint(0,5)
             
+            kind = 6
+            filled = 0
+            
             start_time = utime.ticks_ms()
 
             for _ in range(128):
@@ -132,7 +135,7 @@ def main():
             fps = 1000*128/(end_time - start_time)
             fps_txt = "Rot {:.0f}-{}-{:.0f}/s".format(rotation,kind_name,fps)
             display.write(font,fps_txt, 0, 0, color)
-            print(rotation, kind, filled, fps) 
+            print("Rotation", rotation, "Type", kind_name, "Filled", filled, "FPS", round(fps)) 
             
             utime.sleep(2)
        
