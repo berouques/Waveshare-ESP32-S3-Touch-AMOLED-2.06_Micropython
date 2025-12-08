@@ -1866,7 +1866,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_draw_len_obj, 3, 4, amo
 /*---------------------------------------------------------------------------------------------------
 Below are schrift TTF related functions
 ----------------------------------------------------------------------------------------------------*/
-
+/*
 //Convert UTF32 from UTF8
 static size_t utf8_to_utf32(const char *utf8, uint32_t *utf32, size_t max)
 {
@@ -1903,6 +1903,7 @@ static size_t utf8_to_utf32(const char *utf8, uint32_t *utf32, size_t max)
 	utf32[i] = 0;
 	return i;
 }
+*/
 
 //Load a file font ttf_load_font(filename)
 static mp_obj_t amoled_AMOLED_ttf_load_font(size_t n_args, const mp_obj_t *args) {
@@ -2017,8 +2018,9 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 	//Arg1 string and transform UTF32
 	const char *str_8 = (char *) mp_obj_str_get_str(args[1]);
 	size_t str_8_len = strlen(str_8);
-	uint32_t str_32[str_8_len];
-	utf8_to_utf32(str_8, str_32, str_8_len);
+	//Transform to UTF32
+	//uint32_t str_32[str_8_len];
+	//utf8_to_utf32(str_8, str_32, str_8_len);
 	//Arg2&3 are positions
     mp_int_t x0 = mp_obj_get_int(args[2]);
     mp_int_t y0 = mp_obj_get_int(args[3]);
@@ -2029,8 +2031,10 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 	// if no Arg 6, we will not overwrite frame buffer	
 	bool bg_filled = (n_args > 5) ? true : false;
 	
-	uint16_t x = x0;
-	uint16_t y = y0;
+	uint16_t x_nextchar = x0;
+	uint16_t y_nextchar = y0;
+	uint16_t x_pen = x0;
+	uint16_t y_pen = y0;
 	uint16_t ymin = y0;
 	uint16_t ymax = y0;
 
@@ -2062,11 +2066,13 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 	uint16_t gl_idx;  	// index for rendered glyph
 	size_t buf_idx;    	// index for frame buffer
 	uint8_t gl_data;   	// temporary glyph pixel value
-	uint32_t chr;		// String char
+	//uint32_t chr;		// String char
+	uint8_t chr;
 
 	//Process every char
 	for (uint8_t i = 0; i < str_8_len; i++) {
-		chr = str_32[i];
+		//chr = str_32[i];
+		chr = str_8[i];
 		
 		//Search the gliph_id within the Font
 		if(sft_lookup(&self->sft, chr, &g_id) < 0) {
@@ -2090,24 +2096,28 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 		uint8_t pixels[g_img.width * g_img.height];
 		g_img.pixels = pixels;
 		if(sft_render(&self->sft, g_id, g_img) < 0) {
-			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Error SFT render"));
+			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Error SFT rendering"));
 		}
 		
-		//Adjust pen position
-		x += kerning.yShift;
-		y = y0 + g_mtx.yOffset + kerning.yShift;
+		//Adjust char position with kerning
+		x_nextchar += kerning.xShift;		// Correction of x coordonates for next char 
+		y_nextchar = y0 + kerning.yShift;	// 
 		
+		//Set pen position from nextchar position and glyph coodonate
+		x_pen = x_nextchar + g_mtx.leftSideBearing;
+		y_pen = y_nextchar + g_mtx.yOffset;
+		 
 		//Update Y min and max, will help diplay refresh later
-		ymin = min_val(ymin , y);
-		ymax = max_val(ymax , y + g_img.height);
+		ymin = min_val(ymin , y_pen);
+		ymax = max_val(ymax , y_pen + g_img.height);
 			
 		//Now put the Glyph to the display frame_buffer	
-		gl_idx = 0;
-		for (uint16_t gl_y = 0; gl_y < g_img.height; gl_y++) {	    // for every line of the glyph
-			buf_idx = (y + gl_y) * self->width + x;				    // buf_idx is the frame buffer start index for each line
-			for (uint16_t gl_x = 0; gl_x < g_img.width; gl_x++) { 	// for every cols of the glyph line
-				gl_data = g_img.pixels[gl_idx];		                // get glyph pixel value (0..255) 8bits coding
-				
+		gl_idx = 0;  //Glyph pointer set to 0 at beginning
+		for (uint16_t y_gly = 0; y_gly < g_img.height; y_gly++) {		// for every line of the glyph
+			buf_idx = (y_pen + y_gly) * self->width + x_pen;			// buf_idx is the frame buffer start index for each line
+			for (uint16_t x_gly = 0; x_gly < g_img.width; x_gly++) {	// for every cols of the glyph
+				gl_data = g_img.pixels[gl_idx];		                	// get glyph pixel value (1 Byte)
+	
 				switch (gl_data) {
 					case 255 : // If full 255 => Plain Fg color
 						self->frame_buffer[buf_idx] = fg_color;
@@ -2131,11 +2141,11 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 				gl_idx ++;	  // Next glyph pixel
 			}
 		}
-		x += g_img.width;    // next glyph must de switched from previoux glyph width
+		x_nextchar += g_mtx.advanceWidth;    // next glyph must adwvance 
 	}
 	
 	//Now refresh the display from the frame_buffer (x,y,w,h)
-	refresh_display(self,x0, ymin, x - x0 , ymax - ymin);
+	refresh_display(self,x0, ymin, x_nextchar - x0 , ymax - ymin);
 
     return mp_const_none;
 }
@@ -2143,26 +2153,29 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_draw_obj, 4, 6, amoled_AMOLED_ttf_draw);
 
 
+
 //Give dimension of TTF text draw_len(s)
 static mp_obj_t amoled_AMOLED_ttf_len(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    //Arg1 string and transform UTF32
 	const char *str_8 = (char *) mp_obj_str_get_str(args[1]);
 	size_t str_8_len = strlen(str_8);
-	uint32_t str_32[str_8_len];
-	utf8_to_utf32(str_8, str_32, str_8_len);
+	//Transform to UTF32
+	//uint32_t str_32[str_8_len];
+	//utf8_to_utf32(str_8, str_32, str_8_len);
 	
-	uint16_t x = 0;
+	uint16_t x_nextchar = 0;
 
 	SFT_Glyph g_id;
 	SFT_GMetrics g_mtx;
 	SFT_Glyph left_glyph = 0;
 	SFT_Kerning kerning = { .xShift=0, .yShift=0,};
-	uint32_t chr;
+	//uint32_t chr;		// String char
+	uint8_t chr;
 
 	//Process every char
 	for (uint8_t i = 0; i < str_8_len; i++) {
-		chr = str_32[i];
+		//chr = str_32[i];
+		chr = str_8[i];
 		
 		//Search the gliph_id within the Font
 		if(sft_lookup(&self->sft, chr, &g_id) < 0) {
@@ -2174,18 +2187,17 @@ static mp_obj_t amoled_AMOLED_ttf_len(size_t n_args, const mp_obj_t *args) {
 			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Bad glyph metrics"));
 		}
 		
-		//Check if need space correction
-		if(left_glyph != 0) {
+		//Check if need space correction (if kerning activated)
+		if(self->kerni_corr && (left_glyph != 0)) {
 			sft_kerning(&self->sft, left_glyph, chr, &kerning);
 			left_glyph = chr;  // Update last_glyph
 		}
 		
-		x+= (g_mtx.minWidth + 3) & ~3;
-		//Adjust pen position
-		x += kerning.yShift;
+		//Adjust char position
+		x_nextchar += kerning.xShift + g_mtx.advanceWidth; ; 
 	}
 
-    return mp_obj_new_int((int)x);
+    return mp_obj_new_int((int)x_nextchar);
 }
 
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_len_obj, 2, 2, amoled_AMOLED_ttf_len);
@@ -2730,6 +2742,7 @@ static const mp_rom_map_elem_t amoled_AMOLED_locals_dict_table[] = {
 	{ MP_ROM_QSTR(MP_QSTR_ttf_init_font),   MP_ROM_PTR(&amoled_AMOLED_ttf_init_font_obj)   },
 	{ MP_ROM_QSTR(MP_QSTR_ttf_scale_font),  MP_ROM_PTR(&amoled_AMOLED_ttf_scale_font_obj)  },
 	{ MP_ROM_QSTR(MP_QSTR_ttf_draw),   		MP_ROM_PTR(&amoled_AMOLED_ttf_draw_obj)        },
+//	{ MP_ROM_QSTR(MP_QSTR_ttf_sdraw),   	MP_ROM_PTR(&amoled_AMOLED_ttf_sdraw_obj)       },
 	{ MP_ROM_QSTR(MP_QSTR_ttf_len),   		MP_ROM_PTR(&amoled_AMOLED_ttf_len_obj)         },	
     { MP_ROM_QSTR(MP_QSTR_mirror),          MP_ROM_PTR(&amoled_AMOLED_mirror_obj)          },
     { MP_ROM_QSTR(MP_QSTR_swap_xy),         MP_ROM_PTR(&amoled_AMOLED_swap_xy_obj)         },
