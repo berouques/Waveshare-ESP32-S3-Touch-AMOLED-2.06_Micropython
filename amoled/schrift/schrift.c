@@ -26,6 +26,7 @@
 #include "schrift.h"
 
 //Library added for ESP32 purpose
+#include "py/obj.h"
 #include "esp_heap_caps.h"
 #include "mpfile/mpfile.h"
 
