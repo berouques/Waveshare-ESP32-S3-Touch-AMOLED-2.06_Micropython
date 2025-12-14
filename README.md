@@ -364,7 +364,7 @@ dir(amoled.AMOLED)
 
 For ttf font you have to declare
 
-  - `ttf_font = amoled.SFT("path_to_ttf_font.ttf", xscale = xx, yscale = yy, kerning = true/false)`
+  - `ttf_font = amoled.TTF(ttf="path_to_ttf_font.ttf", xscale = xx, yscale = yy, kerning = true/false)`
   Create a font object depending on the path file given, defaut scales are 16, and kerning correction to shorten "VA" space, is true by default 
 
   - `ttf_font.scale(xscale, yscale)`
@@ -425,6 +425,7 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
 
 
 
