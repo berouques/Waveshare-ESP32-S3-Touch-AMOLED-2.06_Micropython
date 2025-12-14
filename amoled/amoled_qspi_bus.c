@@ -19,10 +19,6 @@
 
 #include <string.h>
 
-#if MICROPY_VERSION >= MICROPY_MAKE_VERSION(1, 23, 0) // STATIC should be replaced with static.
-#undef STATIC   // This may become irrelevant later on.
-#define STATIC static
-#endif
 
 /*
 Actual functions for qspi transmission.
@@ -74,7 +70,7 @@ void hal_lcd_qspi_panel_construct(mp_obj_base_t *self)
 }
 
 
-STATIC void hal_lcd_qspi_panel_tx_param(mp_obj_base_t *self,
+static void hal_lcd_qspi_panel_tx_param(mp_obj_base_t *self,
                                         int            lcd_cmd,
                                         const void    *param,
                                         size_t         param_size)
@@ -101,7 +97,7 @@ STATIC void hal_lcd_qspi_panel_tx_param(mp_obj_base_t *self,
 }
 
 
-STATIC void hal_lcd_qspi_panel_tx_color(mp_obj_base_t *self,			// tx_color(self->bus_obj, 0, buf, len);	
+static void hal_lcd_qspi_panel_tx_color(mp_obj_base_t *self,			// tx_color(self->bus_obj, 0, buf, len);	
                                         int            lcd_cmd,			// 0 in below command
                                         const void    *color,			// pointer to color buffer (full character for example)
                                         size_t         color_size)		// size of color buffer
@@ -148,7 +144,7 @@ STATIC void hal_lcd_qspi_panel_tx_color(mp_obj_base_t *self,			// tx_color(self-
 }
 
 
-STATIC void hal_lcd_qspi_panel_deinit(mp_obj_base_t *self)
+static void hal_lcd_qspi_panel_deinit(mp_obj_base_t *self)
 {
     amoled_qspi_bus_obj_t *qspi_panel_obj = (amoled_qspi_bus_obj_t *)self;
     machine_hw_spi_obj_t *spi_obj = ((machine_hw_spi_obj_t *)qspi_panel_obj->spi_obj);
@@ -160,7 +156,7 @@ STATIC void hal_lcd_qspi_panel_deinit(mp_obj_base_t *self)
 }
 
 
-STATIC void amoled_qspi_bus_print(const mp_print_t *print,
+static void amoled_qspi_bus_print(const mp_print_t *print,
                                     mp_obj_t          self_in,
                                     mp_print_kind_t   kind)
 {
@@ -180,7 +176,7 @@ STATIC void amoled_qspi_bus_print(const mp_print_t *print,
 }
 
 
-STATIC mp_obj_t amoled_qspi_bus_make_new(const mp_obj_type_t *type,
+static mp_obj_t amoled_qspi_bus_make_new(const mp_obj_type_t *type,
                                            size_t               n_args,
                                            size_t               n_kw,
                                            const mp_obj_t      *all_args)
@@ -241,7 +237,7 @@ STATIC mp_obj_t amoled_qspi_bus_make_new(const mp_obj_type_t *type,
 }
 
 
-STATIC mp_obj_t amoled_qspi_bus_tx_param(size_t n_args, const mp_obj_t *args_in)
+static mp_obj_t amoled_qspi_bus_tx_param(size_t n_args, const mp_obj_t *args_in)
 {
     mp_obj_base_t *self = (mp_obj_base_t *)MP_OBJ_TO_PTR(args_in[0]);
     int cmd = mp_obj_get_int(args_in[1]);
@@ -255,10 +251,10 @@ STATIC mp_obj_t amoled_qspi_bus_tx_param(size_t n_args, const mp_obj_t *args_in)
 
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_qspi_bus_tx_param_obj, 2, 3, amoled_qspi_bus_tx_param);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_qspi_bus_tx_param_obj, 2, 3, amoled_qspi_bus_tx_param);
 
 
-STATIC mp_obj_t amoled_qspi_bus_tx_color(size_t n_args, const mp_obj_t *args_in)
+static mp_obj_t amoled_qspi_bus_tx_color(size_t n_args, const mp_obj_t *args_in)
 {
     mp_obj_base_t *self = (mp_obj_base_t *)MP_OBJ_TO_PTR(args_in[0]);
     int cmd = mp_obj_get_int(args_in[1]);
@@ -273,10 +269,10 @@ STATIC mp_obj_t amoled_qspi_bus_tx_color(size_t n_args, const mp_obj_t *args_in)
 
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_qspi_bus_tx_color_obj, 2, 3, amoled_qspi_bus_tx_color);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_qspi_bus_tx_color_obj, 2, 3, amoled_qspi_bus_tx_color);
 
 
-STATIC mp_obj_t amoled_qspi_bus_deinit(mp_obj_t self_in)
+static mp_obj_t amoled_qspi_bus_deinit(mp_obj_t self_in)
 {
     mp_obj_base_t *self = (mp_obj_base_t *)MP_OBJ_TO_PTR(self_in);
 
@@ -284,19 +280,19 @@ STATIC mp_obj_t amoled_qspi_bus_deinit(mp_obj_t self_in)
     // m_del_obj(mp_lcd_spi_panel_obj_t, self);
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(amoled_qspi_bus_deinit_obj, amoled_qspi_bus_deinit);
+static MP_DEFINE_CONST_FUN_OBJ_1(amoled_qspi_bus_deinit_obj, amoled_qspi_bus_deinit);
 
 
-STATIC const mp_rom_map_elem_t amoled_qspi_bus_locals_dict_table[] = {
+static const mp_rom_map_elem_t amoled_qspi_bus_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_tx_param), MP_ROM_PTR(&amoled_qspi_bus_tx_param_obj) },
     { MP_ROM_QSTR(MP_QSTR_tx_color), MP_ROM_PTR(&amoled_qspi_bus_tx_color_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit),   MP_ROM_PTR(&amoled_qspi_bus_deinit_obj)   },
     { MP_ROM_QSTR(MP_QSTR___del__),  MP_ROM_PTR(&amoled_qspi_bus_deinit_obj)   },
 };
-STATIC MP_DEFINE_CONST_DICT(amoled_qspi_bus_locals_dict, amoled_qspi_bus_locals_dict_table);
+static MP_DEFINE_CONST_DICT(amoled_qspi_bus_locals_dict, amoled_qspi_bus_locals_dict_table);
 
 
-STATIC const amoled_panel_p_t mp_lcd_panel_p = {
+static const amoled_panel_p_t mp_lcd_panel_p = {
     .tx_param = hal_lcd_qspi_panel_tx_param,
     .tx_color = hal_lcd_qspi_panel_tx_color,
     .deinit = hal_lcd_qspi_panel_deinit
