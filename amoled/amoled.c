@@ -49,7 +49,7 @@ A major part of the code works for 16bpp colorset, event some other are already 
 #include <math.h>
 #include <wchar.h>
 
-#define AMOLED_DRIVER_VERSION "04.12.2025"
+#define AMOLED_DRIVER_VERSION "14.12.2025"
 
 #define SWAP16(a, b) { int16_t t = a; a = b; b = t; }
 #define ABS(N) (((N) < 0) ? (-(N)) : (N))
@@ -430,17 +430,31 @@ static mp_obj_t amoled_AMOLED_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_deinit_obj, amoled_AMOLED_deinit);
 
 
+static mp_obj_t amoled_TTF_deinit(mp_obj_t self_in) {
+    SFT *self = (SFT *)MP_OBJ_TO_PTR(self_in);
+
+    heap_caps_free((void *)self->font->memory);
+	heap_caps_free((void *)self->font);
+
+    //m_del_obj(amoled_TTF_obj_t, self); 
+    return mp_const_none;
+}
+
+static MP_DEFINE_CONST_FUN_OBJ_1(amoled_TTF_deinit_obj, amoled_TTF_deinit);
+
+
+
 /*----------------------------------------------------------------------------------------------------
 Below are library information related functions.
 -----------------------------------------------------------------------------------------------------*/
 
-
+//Print display informations
 static void amoled_AMOLED_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t  kind) {
     (void) kind;
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_printf(
         print,
-        "<AMOLED bus=%p, reset=%p, color_space=%s, bpp=%u>, version=%s",
+        "<AMOLED bus=%p, reset=%p, color_space=%s, bpp=%u, version=%s>",
         self->bus_obj,
         self->reset,
         color_space_desc[self->color_space],
@@ -448,6 +462,24 @@ static void amoled_AMOLED_print(const mp_print_t *print, mp_obj_t self_in, mp_pr
         AMOLED_DRIVER_VERSION
     );
 }
+
+/*LUDO DEV TRIAL*/
+//Print Font informations
+static void amoled_TTF_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t  kind) {
+    (void) kind;
+    SFT *self = MP_OBJ_TO_PTR(self_in);
+    mp_printf(
+        print,
+        "<AMOLED font Scale X=%f Y=%f, Offset X=%f Y=%f, Kerning=%u,Flags=%u>",
+        self->xScale,
+        self->yScale,
+		self->xOffset,
+		self->yOffset,
+		self->kerning,
+		self->flags
+    );
+}
+
 
 static mp_obj_t amoled_AMOLED_version() {   
     return mp_obj_new_str(AMOLED_DRIVER_VERSION, 10);
@@ -1092,7 +1124,6 @@ static mp_obj_t amoled_AMOLED_circle(size_t n_args, const mp_obj_t *args) {
 
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_circle_obj, 5, 5, amoled_AMOLED_circle);
 
-
 static void fill_circle(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_t r, uint16_t color) {
     int x = 0;
     int y = r;
@@ -1129,6 +1160,174 @@ static mp_obj_t amoled_AMOLED_fill_circle(size_t n_args, const mp_obj_t *args) {
 }
 
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_circle_obj, 5, 5, amoled_AMOLED_fill_circle);
+
+
+static void ellipse(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_t rx, uint16_t ry, uint16_t color) {
+    int x = 0;
+    int y = ry;
+	
+	//let to check vs int
+    float d1 = (ry * ry) - (rx * rx * ry) + (0.25 * rx * rx);
+	float dx = 0;
+	float dy = 2 * rx * rx * y;
+
+	self->hold_display = true;
+
+	//If ellipse is flat, général algorythm will fall into loop
+	if ((rx == 0)|(ry == 0)){
+		if (rx == 0) {
+			fast_hline(self, xm - ry, ym, 2 * ry, color);
+		}
+		if (ry == 0){
+			fast_vline(self, xm, ym-rx, 2 * rx, color);
+		}
+	}
+	else {
+		// Plotting points of region 1	
+		while (dx <= dy) {
+			pixel(self, xm + x, ym + y, color);
+			pixel(self, xm + x, ym - y, color);
+			pixel(self, xm - x, ym + y, color);
+			pixel(self, xm - x, ym - y, color);
+
+			if (d1 < 0) {
+				x++;
+				dx = dx + (2 * ry * ry);
+				d1 = d1 + dx + (ry * ry);
+			} 
+			else {
+				x++;
+				y--;
+				dx = dx + (2 * ry * ry);
+				dy = dy - (2 * rx * rx);
+				d1 = d1 + dx - dy + (ry * ry);
+			}
+		}
+
+		int d2 = ((ry * ry) * ((x + 0.5) * (x + 0.5))) + ((rx * rx) * ((y - 1) * (y - 1))) - (rx * rx * ry * ry);
+
+		// Plotting points of region 2
+		while (y >= 0) {
+			pixel(self, xm + x, ym + y, color);
+			pixel(self, xm + x, ym - y, color);
+			pixel(self, xm - x, ym + y, color);
+			pixel(self, xm - x, ym - y, color);
+			
+			if (d2 > 0) {
+				y--;
+				dy = dy - (2 * rx * rx);
+				d2 = d2 + (rx * rx) - dy;
+			} 
+			else {
+				y--;
+				x++;
+				dx = dx + (2 * ry * ry);
+				dy = dy - (2 * rx * rx);
+				d2 = d2 + dx - dy + (rx * rx);
+			}
+		}
+	}
+
+	self->hold_display = false;
+	refresh_display(self,xm-rx,ym-ry,2*rx+1,2*ry+1);
+}
+
+static mp_obj_t amoled_AMOLED_ellipse(size_t n_args, const mp_obj_t *args) {
+    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    uint16_t xm = mp_obj_get_int(args[1]);
+    uint16_t ym = mp_obj_get_int(args[2]);
+    uint16_t rx = mp_obj_get_int(args[3]);
+	uint16_t ry = mp_obj_get_int(args[4]);
+    uint16_t color = mp_obj_get_int(args[5]);
+
+    ellipse(self, xm, ym, rx, ry, color);
+    return mp_const_none;
+}
+
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ellipse_obj, 6, 6, amoled_AMOLED_ellipse);
+
+
+static void fill_ellipse(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_t rx, uint16_t ry, uint16_t color) {
+    int x = 0;
+    int y = ry;
+	
+	//let to check vs int
+    float d1 = (ry * ry) - (rx * rx * ry) + (0.25 * rx * rx);
+	float dx = 0;
+	float dy = 2 * rx * rx * y;
+
+	self->hold_display = true;
+
+	//If ellipse is flat, général algorythm will fall into loop
+	if ((rx == 0)|(ry == 0)){
+		if (rx == 0) {
+			fast_hline(self, xm - ry, ym, 2 * ry, color);
+		}
+		if (ry == 0){
+			fast_vline(self, xm, ym-rx, 2 * rx, color);
+		}
+	}
+	else {
+
+		// Plotting points of region 1	
+		while (dx <= dy) {
+			
+			fast_vline(self, xm + x, ym - y, 2 * y, color);
+			fast_vline(self, xm - x, ym - y, 2 * y, color);
+		
+			if (d1 < 0) {
+				x++;
+				dx = dx + (2 * ry * ry);
+				d1 = d1 + dx + (ry * ry);
+			} 
+			else {
+				x++;
+				y--;
+				dx = dx + (2 * ry * ry);
+				dy = dy - (2 * rx * rx);
+				d1 = d1 + dx - dy + (ry * ry);
+			}
+		}
+
+		int d2 = ((ry * ry) * ((x + 0.5) * (x + 0.5))) + ((rx * rx) * ((y - 1) * (y - 1))) - (rx * rx * ry * ry);
+
+		// Plotting points of region 2
+		while (y >= 0) {
+			
+			fast_vline(self, xm + x, ym - y, 2 * y, color);
+			fast_vline(self, xm - x, ym - y, 2 * y, color);
+			
+			if (d2 > 0) {
+				y--;
+				dy = dy - (2 * rx * rx);
+				d2 = d2 + (rx * rx) - dy;
+			} 
+			else {
+				y--;
+				x++;
+				dx = dx + (2 * ry * ry);
+				dy = dy - (2 * rx * rx);
+				d2 = d2 + dx - dy + (rx * rx);
+			}
+		}
+	}
+	self->hold_display = false;
+	refresh_display(self,xm-rx,ym-ry,2*rx+1,2*ry+1);
+}
+
+static mp_obj_t amoled_AMOLED_fill_ellipse(size_t n_args, const mp_obj_t *args) {
+    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    uint16_t xm = mp_obj_get_int(args[1]);
+    uint16_t ym = mp_obj_get_int(args[2]);
+    uint16_t rx = mp_obj_get_int(args[3]);
+	uint16_t ry = mp_obj_get_int(args[4]);
+    uint16_t color = mp_obj_get_int(args[5]);
+
+    fill_ellipse(self, xm, ym, rx, ry, color);
+    return mp_const_none;
+}
+
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_ellipse_obj, 6, 6, amoled_AMOLED_fill_ellipse);
 
 
 // Return the center of a polygon as an (x, y) tuple
@@ -1905,138 +2104,150 @@ static size_t utf8_to_utf32(const char *utf8, uint32_t *utf32, size_t max)
 }
 */
 
-//Load a file font ttf_load_font(filename)
-static mp_obj_t amoled_AMOLED_ttf_load_font(size_t n_args, const mp_obj_t *args) {
-    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-	const char *filename = mp_obj_str_get_str(args[1]);
+//Create a font object holding the TTF and return the font object
+mp_obj_t amoled_TTF_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
+
+	enum {
+        ARG_ttf,
+		ARG_kerning,
+        ARG_xscale,
+        ARG_yscale,
+		ARG_ydonwward
+    };
+    const mp_arg_t make_new_args[] = {
+        { MP_QSTR_ttf,			MP_ARG_OBJ  | MP_ARG_KW_ONLY | MP_ARG_REQUIRED	},
+		{ MP_QSTR_kerning,		MP_ARG_BOOL | MP_ARG_KW_ONLY,  {.u_bool = true	}},
+        { MP_QSTR_xscale,		MP_ARG_INT  | MP_ARG_KW_ONLY,  {.u_int = 16		}},
+        { MP_QSTR_yscale,		MP_ARG_INT  | MP_ARG_KW_ONLY,  {.u_int = 16		}},
+		{ MP_QSTR_ydonwward,    MP_ARG_INT  | MP_ARG_KW_ONLY,  {.u_int = 1		}},
+    };
+    mp_arg_val_t args[MP_ARRAY_SIZE(make_new_args)];
+    mp_arg_parse_all_kw_array(n_args, n_kw, all_args, MP_ARRAY_SIZE(make_new_args), make_new_args, args);
+
+	// create new object
+	SFT *self = m_new_obj(SFT);
+	self->base.type = &amoled_TTF_type;
+	
+	const char *filename = mp_obj_str_get_str((void *) args[ARG_ttf].u_rom_obj);
 	int32_t size=0;
 	
+	self->xScale    = args[ARG_xscale].u_int;
+	self->yScale    = args[ARG_yscale].u_int;
+	self->kerning 	= args[ARG_yscale].u_int;
+	self->flags		= args[ARG_ydonwward].u_bool;
+	
     //Create sft_font in SPIRAM
-	if (!(self->sft.font = heap_caps_malloc(sizeof *self->sft.font, MALLOC_CAP_8BIT))) {
-		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot allocate sft_font memory."));
+	if (!(self->font = heap_caps_malloc(sizeof self->font, MALLOC_CAP_8BIT))) {
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot allocate sft font."));
 	}
 
+	mp_file_t 	*fp;
 	//Use Amoled file pointer to opren font file
-	self->fp = mp_open(filename, "rb");	
+	fp = mp_open(filename, "rb");	
 	
-	if (self->fp == NULL) {
-		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Failed to Open Font file."));
+	if (fp == NULL) {
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot open font file."));
 	}
 	
-	if ((mp_seek(self->fp, 0, MP_SEEK_END) < 0) || ((size = mp_tell(self->fp)) < 0)) {
-		mp_close(self->fp);
-		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot determine Font file size."));
+	if ((mp_seek(fp, 0, MP_SEEK_END) < 0) || ((size = mp_tell(fp)) < 0)) {
+		mp_close(fp);
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot determine font file size."));
 	}
 
 	//Allocatate font memory buffer
-	self->sft.font->memory = heap_caps_malloc(size + 1, MALLOC_CAP_8BIT);
+	self->font->memory = heap_caps_malloc(size + 1, MALLOC_CAP_8BIT);
 	
 	//Check if memory allocation was OK
-	if(self->sft.font->memory == NULL) {
-		mp_close(self->fp);
-		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot allocate memory."));
+	if(self->font->memory == NULL) {
+		mp_close(fp);
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot allocate font memory."));
 	}
 
 	//Go back (as Rewind) to the beginning of fp
-	mp_seek(self->fp, 0, MP_SEEK_SET);
+	mp_seek(fp, 0, MP_SEEK_SET);
 
 	//Read nsize bytes of fp to data
-	self->sft.font->size = mp_readinto(self->fp, (void *) self->sft.font->memory, size);
+	self->font->size = mp_readinto(fp, (void *) self->font->memory, size);
 	
-	if(self->sft.font->size != size) {
-		mp_close(self->fp);
+	if(self->font->size != size) {
+		mp_close(fp);
 		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot read full file."));
 	} else {
 		//self->sft.font->memory[nread] = '\0';
-		self->sft.font->source = SrcMapping;
+		self->font->source = SrcMapping;
 	}
 
-	//Finally close file
-	mp_close(self->fp);
+	//Close the file
+	mp_close(fp);
 	
-	return mp_const_true;
-}
-
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_load_font_obj, 2, 2, amoled_AMOLED_ttf_load_font);
-
-//Initialise a font after loading, return True if everything is ok, False elsewhere
-//ttf_init_font([kerning_correction, alpha_correction]) both are True by default
-static mp_obj_t amoled_AMOLED_ttf_init_font(size_t n_args, const mp_obj_t *args) {
-    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-	mp_int_t kerning = (n_args > 1) ? mp_obj_get_int(args[1]) : 1;
-	mp_int_t alpha = (n_args > 2) ? mp_obj_get_int(args[2]) : 1;
-	self->kerni_corr = (kerning==1); 
-	self->alpha_corr = (alpha==1);			
-	
-	if(init_font(self->sft.font) == 0) {
-		return mp_const_true;
+	//Proceed font initialisation
+	if(init_font(self->font) != 0) {
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Cannot initialize font."));
 	} else {
-		return mp_const_false;
+		return MP_OBJ_FROM_PTR(self);
 	}
 }
 
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_init_font_obj, 1, 3, amoled_AMOLED_ttf_init_font);
 
+//Scale font : scale(x_scale, y_scale) 
+static mp_obj_t amoled_TTF_scale(size_t n_args, const mp_obj_t *args) {
+	
+    SFT *self = MP_OBJ_TO_PTR(args[0]);
 
-//Scale font ttf_scale_font(x_scale, y_scale) 
-static mp_obj_t amoled_AMOLED_ttf_scale_font(size_t n_args, const mp_obj_t *args) {
-    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-				
 	if (n_args > 1) {
 		if (mp_obj_is_float(args[1])) {
-            self->sft.xScale = (double)mp_obj_float_get(args[1]);
+            self->xScale = (double)mp_obj_float_get(args[1]);
         }
         if (mp_obj_is_int(args[1])) {
-            self->sft.xScale = (double)mp_obj_get_int(args[1]);
+            self->xScale = (double)mp_obj_get_int(args[1]);
 		}
 	} else {
-		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF scale need at least 1 argument"));
+		mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF scale need at least 1 int or float argument"));
 	}
 	
 	if (n_args > 2) {
 		if (mp_obj_is_float(args[2])) {
-            self->sft.yScale = (double)mp_obj_float_get(args[2]);
+            self->yScale = (double)mp_obj_float_get(args[2]);
         }
         if (mp_obj_is_int(args[2])) {
-            self->sft.yScale = (double)mp_obj_get_int(args[2]);
+            self->yScale = (double)mp_obj_get_int(args[2]);
 		}
 	} else {
-		self->sft.yScale = self->sft.xScale;
+		self->yScale = self->xScale;
 	}
-	
-	self->sft.flags = SFT_DOWNWARD_Y;
 
-    return mp_const_true;		
+    return mp_const_none;		
 }
 
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_scale_font_obj, 2, 3, amoled_AMOLED_ttf_scale_font);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_TTF_scale_obj, 2, 3, amoled_TTF_scale);
 
 
-//Draw TTF text	draw(string, x, y[, fg, bg])
+//Draw a TTF text :  ttf_draw(font, string, x, y[, fg, bg])
 static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+	SFT *sft = (SFT *) MP_OBJ_TO_PTR(args[1]);
 	//Arg1 string and transform UTF32
-	const char *str_8 = (char *) mp_obj_str_get_str(args[1]);
+	const char *str_8 = (char *) mp_obj_str_get_str(args[2]);
 	size_t str_8_len = strlen(str_8);
 	//Transform to UTF32
 	//uint32_t str_32[str_8_len];
 	//utf8_to_utf32(str_8, str_32, str_8_len);
 	//Arg2&3 are positions
-    mp_int_t x0 = mp_obj_get_int(args[2]);
-    mp_int_t y0 = mp_obj_get_int(args[3]);
+    mp_int_t x0 = mp_obj_get_int(args[3]);
+    mp_int_t y0 = mp_obj_get_int(args[4]);
 	// Arg 4 if front Color, White by default
-    mp_int_t fg_color = (n_args > 4) ? mp_obj_get_int(args[4]) : WHITE; 
+    mp_int_t fg_color = (n_args > 5) ? mp_obj_get_int(args[5]) : WHITE; 
 	// Arg 5 if back Color, if specified we will write over the frame buffer
-	mp_int_t bg_color = (n_args > 5) ? mp_obj_get_int(args[5]) : BLACK;
+	mp_int_t bg_color = (n_args > 6) ? mp_obj_get_int(args[6]) : BLACK;
 	// if no Arg 6, we will not overwrite frame buffer	
-	bool bg_filled = (n_args > 5) ? true : false;
+	bool bg_filled = (n_args > 6) ? true : false;
 	
-	uint16_t x_nextchar = x0;
-	uint16_t y_nextchar = y0;
-	uint16_t x_pen = x0;
-	uint16_t y_pen = y0;
-	uint16_t ymin = y0;
-	uint16_t ymax = y0;
+	mp_int_t x_nextchar = x0;
+	mp_int_t y_nextchar = y0;
+	mp_int_t x_pen = x0;
+	mp_int_t y_pen = y0;
+	mp_int_t ymin = y0;
+	mp_int_t ymax = y0;
 
 	//Get bpp process for antialiasing process
 	uint32_t 	fltr_col_rd = self->bpp_process.fltr_col_rd;
@@ -2075,18 +2286,18 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 		chr = str_8[i];
 		
 		//Search the gliph_id within the Font
-		if(sft_lookup(&self->sft, chr, &g_id) < 0) {
+		if(sft_lookup(sft, chr, &g_id) < 0) {
 			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Unknown glyph"));
 		}
 
 		//Then Get Glyph Metrics
-		if(sft_gmetrics(&self->sft, g_id, &g_mtx) < 0) {
+		if(sft_gmetrics(sft, g_id, &g_mtx) < 0) {
 			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Bad glyph metrics"));
 		}
 		
 		//Check if need space correction (if kerning activated)
-		if(self->kerni_corr && (left_glyph != 0)) {
-			sft_kerning(&self->sft, left_glyph, chr, &kerning);
+		if(sft->kerning && (left_glyph != 0)) {
+			sft_kerning(sft, left_glyph, chr, &kerning);
 			left_glyph = chr;  // Update last_glyph
 		}
 		
@@ -2095,7 +2306,7 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 		g_img.height = g_mtx.minHeight;
 		uint8_t pixels[g_img.width * g_img.height];
 		g_img.pixels = pixels;
-		if(sft_render(&self->sft, g_id, g_img) < 0) {
+		if(sft_render(sft, g_id, g_img) < 0) {
 			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Error SFT rendering"));
 		}
 		
@@ -2128,13 +2339,11 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 					break;
 
 					default:	//Otherwise, moderate color if aliasing activated
-						if(self->alpha_corr) {
-							mfg_color_rd = ((gl_data * fg_color_rd) >> 8) << bitsw_col_rd;
-							mfg_color_gr = ((gl_data * fg_color_gr) >> 8) << bitsw_col_gr;
-							mfg_color_bl = (gl_data * fg_color_bl) >> 8;
-							mfg_color = ( mfg_color_rd | mfg_color_gr | mfg_color_bl);
-							self->frame_buffer[buf_idx] = (uint16_t) (mfg_color >> 8) | (mfg_color << 8); //Because of little indian
-						}
+						mfg_color_rd = ((gl_data * fg_color_rd) >> 8) << bitsw_col_rd;
+						mfg_color_gr = ((gl_data * fg_color_gr) >> 8) << bitsw_col_gr;
+						mfg_color_bl = (gl_data * fg_color_bl) >> 8;
+						mfg_color = ( mfg_color_rd | mfg_color_gr | mfg_color_bl);
+						self->frame_buffer[buf_idx] = (uint16_t) (mfg_color >> 8) | (mfg_color << 8); //Because of little indian
 					break;
 				}
 				buf_idx++;    // Next framebuffer pixel
@@ -2150,26 +2359,28 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_draw_obj, 4, 6, amoled_AMOLED_ttf_draw);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_draw_obj, 5, 7, amoled_AMOLED_ttf_draw);
 
 
-
-//Give dimension of TTF text draw_len(s)
+//Get TTF drawn text length :  ttf_len(font, string) with font pointer
 static mp_obj_t amoled_AMOLED_ttf_len(size_t n_args, const mp_obj_t *args) {
-    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-	const char *str_8 = (char *) mp_obj_str_get_str(args[1]);
+    //amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+	SFT *sft = (SFT *) MP_OBJ_TO_PTR(args[1]);
+	//Arg1 string and transform UTF32
+	const char *str_8 = (char *) mp_obj_str_get_str(args[2]);
 	size_t str_8_len = strlen(str_8);
 	//Transform to UTF32
 	//uint32_t str_32[str_8_len];
 	//utf8_to_utf32(str_8, str_32, str_8_len);
-	
-	uint16_t x_nextchar = 0;
+	//Arg2&3 are positions
+
+	mp_int_t x_nextchar = 0;
 
 	SFT_Glyph g_id;
 	SFT_GMetrics g_mtx;
 	SFT_Glyph left_glyph = 0;
 	SFT_Kerning kerning = { .xShift=0, .yShift=0,};
-	//uint32_t chr;		// String char
+	
 	uint8_t chr;
 
 	//Process every char
@@ -2178,29 +2389,31 @@ static mp_obj_t amoled_AMOLED_ttf_len(size_t n_args, const mp_obj_t *args) {
 		chr = str_8[i];
 		
 		//Search the gliph_id within the Font
-		if(sft_lookup(&self->sft, chr, &g_id) < 0) {
+		if(sft_lookup(sft, chr, &g_id) < 0) {
 			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Unknown glyph"));
 		}
 
 		//Then Get Glyph Metrics
-		if(sft_gmetrics(&self->sft, g_id, &g_mtx) < 0) {
+		if(sft_gmetrics(sft, g_id, &g_mtx) < 0) {
 			mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TTF Bad glyph metrics"));
 		}
 		
 		//Check if need space correction (if kerning activated)
-		if(self->kerni_corr && (left_glyph != 0)) {
-			sft_kerning(&self->sft, left_glyph, chr, &kerning);
+		if(sft->kerning && (left_glyph != 0)) {
+			sft_kerning(sft, left_glyph, chr, &kerning);
 			left_glyph = chr;  // Update last_glyph
 		}
-		
-		//Adjust char position
-		x_nextchar += kerning.xShift + g_mtx.advanceWidth; ; 
+				
+		//Adjust char position with kerning
+		x_nextchar += kerning.xShift;		// Correction of x coordonates for next char 
+					
+		x_nextchar += g_mtx.advanceWidth;    // next glyph must advance 
 	}
-
+	
     return mp_obj_new_int((int)x_nextchar);
 }
 
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_len_obj, 2, 2, amoled_AMOLED_ttf_len);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_len_obj, 3, 3, amoled_AMOLED_ttf_len);
 
 
 /*-----------------------------------------------------------------------------------------------------
@@ -2723,6 +2936,8 @@ static const mp_rom_map_elem_t amoled_AMOLED_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_fill_bubble_rect),MP_ROM_PTR(&amoled_AMOLED_fill_bubble_rect_obj)},
     { MP_ROM_QSTR(MP_QSTR_circle),          MP_ROM_PTR(&amoled_AMOLED_circle_obj)          },
     { MP_ROM_QSTR(MP_QSTR_fill_circle),     MP_ROM_PTR(&amoled_AMOLED_fill_circle_obj)     },
+    { MP_ROM_QSTR(MP_QSTR_ellipse),         MP_ROM_PTR(&amoled_AMOLED_ellipse_obj)         },
+    { MP_ROM_QSTR(MP_QSTR_fill_ellipse),    MP_ROM_PTR(&amoled_AMOLED_fill_ellipse_obj)    },
 	{ MP_ROM_QSTR(MP_QSTR_trian),           MP_ROM_PTR(&amoled_AMOLED_trian_obj)           },
 	{ MP_ROM_QSTR(MP_QSTR_fill_trian),      MP_ROM_PTR(&amoled_AMOLED_fill_trian_obj)      },
     { MP_ROM_QSTR(MP_QSTR_polygon),         MP_ROM_PTR(&amoled_AMOLED_polygon_obj)         },
@@ -2738,11 +2953,10 @@ static const mp_rom_map_elem_t amoled_AMOLED_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_write_len),       MP_ROM_PTR(&amoled_AMOLED_write_len_obj)       },
     { MP_ROM_QSTR(MP_QSTR_draw),            MP_ROM_PTR(&amoled_AMOLED_draw_obj)            },
     { MP_ROM_QSTR(MP_QSTR_draw_len),        MP_ROM_PTR(&amoled_AMOLED_draw_len_obj)        },
-	{ MP_ROM_QSTR(MP_QSTR_ttf_load_font),   MP_ROM_PTR(&amoled_AMOLED_ttf_load_font_obj)   },
+/*	{ MP_ROM_QSTR(MP_QSTR_ttf_load_font),   MP_ROM_PTR(&amoled_AMOLED_ttf_load_font_obj)   },
 	{ MP_ROM_QSTR(MP_QSTR_ttf_init_font),   MP_ROM_PTR(&amoled_AMOLED_ttf_init_font_obj)   },
-	{ MP_ROM_QSTR(MP_QSTR_ttf_scale_font),  MP_ROM_PTR(&amoled_AMOLED_ttf_scale_font_obj)  },
+	{ MP_ROM_QSTR(MP_QSTR_ttf_scale_font),  MP_ROM_PTR(&amoled_AMOLED_ttf_scale_font_obj)  },*/
 	{ MP_ROM_QSTR(MP_QSTR_ttf_draw),   		MP_ROM_PTR(&amoled_AMOLED_ttf_draw_obj)        },
-//	{ MP_ROM_QSTR(MP_QSTR_ttf_sdraw),   	MP_ROM_PTR(&amoled_AMOLED_ttf_sdraw_obj)       },
 	{ MP_ROM_QSTR(MP_QSTR_ttf_len),   		MP_ROM_PTR(&amoled_AMOLED_ttf_len_obj)         },	
     { MP_ROM_QSTR(MP_QSTR_mirror),          MP_ROM_PTR(&amoled_AMOLED_mirror_obj)          },
     { MP_ROM_QSTR(MP_QSTR_swap_xy),         MP_ROM_PTR(&amoled_AMOLED_swap_xy_obj)         },
@@ -2764,8 +2978,19 @@ static const mp_rom_map_elem_t amoled_AMOLED_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_MONOCHROME),      MP_ROM_INT(COLOR_SPACE_MONOCHROME)             },
 };
 
+
 static MP_DEFINE_CONST_DICT(amoled_AMOLED_locals_dict, amoled_AMOLED_locals_dict_table);
 
+/*LUDO DEV TRIAL*/
+//TTF Font dictionnary
+static const mp_rom_map_elem_t amoled_TTF_locals_dict_table[] = {
+	{ MP_ROM_QSTR(MP_QSTR_scale),	MP_ROM_PTR(&amoled_TTF_scale_obj)	 },
+	{ MP_ROM_QSTR(MP_QSTR_deinit),  MP_ROM_PTR(&amoled_TTF_deinit_obj)   },
+    { MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&amoled_TTF_deinit_obj)   },
+};
+
+static MP_DEFINE_CONST_DICT(amoled_TTF_locals_dict, amoled_TTF_locals_dict_table);
+/*LUDO DEV TRIAL*/
 
 #ifdef MP_OBJ_TYPE_GET_SLOT
 MP_DEFINE_CONST_OBJ_TYPE(
@@ -2776,6 +3001,18 @@ MP_DEFINE_CONST_OBJ_TYPE(
     make_new, amoled_AMOLED_make_new,
     locals_dict, (mp_obj_dict_t *)&amoled_AMOLED_locals_dict
 );
+
+/*LUDO DEV TRIAL*/
+MP_DEFINE_CONST_OBJ_TYPE(
+    amoled_TTF_type,
+    MP_QSTR_TTF,
+    MP_TYPE_FLAG_NONE,
+    print, amoled_TTF_print,
+    make_new, amoled_TTF_make_new,
+    locals_dict, (mp_obj_dict_t *)&amoled_TTF_locals_dict
+);
+/*LUDO DEV TRIAL*/
+
 #else
 const mp_obj_type_t amoled_AMOLED_type = {
     { &mp_type_type },
@@ -2784,7 +3021,21 @@ const mp_obj_type_t amoled_AMOLED_type = {
     .make_new    = amoled_AMOLED_make_new,
     .locals_dict = (mp_obj_dict_t *)&amoled_AMOLED_locals_dict,
 };
+
+/*LUDO DEV TRIAL*/
+const mp_obj_type_t amoled_TTF_type = {
+	{ &mp_type_type },
+	.name 		= MP_QSTR_TTF,
+	.print 		= amoled_TTF_print,
+	.make_new	= amoled_TTF_make_new,
+	.locals_dic = (mp_obj_dict_t *)&amoled_TTF_locals_dict,
+};
+/*LUDO DEV TRIAL*/
+
 #endif
+
+
+
 
 //amoled global dictionnary
 
@@ -2792,6 +3043,7 @@ static const mp_map_elem_t mp_module_amoled_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),   MP_OBJ_NEW_QSTR(MP_QSTR_amoled)       },
     { MP_ROM_QSTR(MP_QSTR_AMOLED),     (mp_obj_t)&amoled_AMOLED_type         },
     { MP_ROM_QSTR(MP_QSTR_QSPIPanel),  (mp_obj_t)&amoled_qspi_bus_type       },
+    { MP_ROM_QSTR(MP_QSTR_TTF),  	   (mp_obj_t)&amoled_TTF_type       	 }, //LUDO DEV TRIAL
     { MP_ROM_QSTR(MP_QSTR_RGB),        MP_ROM_INT(COLOR_SPACE_RGB)           },
     { MP_ROM_QSTR(MP_QSTR_BGR),        MP_ROM_INT(COLOR_SPACE_BGR)           },
     { MP_ROM_QSTR(MP_QSTR_MONOCHROME), MP_ROM_INT(COLOR_SPACE_MONOCHROME)    },
@@ -2806,6 +3058,7 @@ static const mp_map_elem_t mp_module_amoled_globals_table[] = {
 };
 
 static MP_DEFINE_CONST_DICT(mp_module_amoled_globals, mp_module_amoled_globals_table);
+
 
 
 const mp_obj_module_t mp_module_amoled = {
