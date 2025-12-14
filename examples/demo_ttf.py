@@ -2,6 +2,7 @@
 import random
 import utime
 import amoled
+from math import cos,sin
 
 BOARD = "WS_180_AMOLED" #LG_191_AMOLED or LG_241_AMOLED or WS_180_AMOLED or WS_241_AMOLED
 
@@ -15,22 +16,23 @@ elif BOARD == "WS_241_AMOLED" :
     from config.WS_241_AMOLED import *
 
 
-font = display.ttf_load_font("/fonts/test.ttf")
-display.ttf_init_font()
+fnt = amoled.TTF(ttf="/fonts/test.ttf",xscale=32, yscale=32)
 
 text = "Hello!"
 
 display.init()
 
-display.ttf_scale_font(16)
-display.ttf_draw(text,50,50,amoled.RED)
+width = display.width()
+height = display.height()
 
-display.ttf_scale_font(32)
-display.ttf_draw(text,50,100,amoled.GREEN)
+for x in range (256) :
+    fnt.scale(min(x,128))
+    len=display.ttf_len(fnt, text)
+    xpos = (width - len) // 2
+    ypos = height // 2
+    color = display.colorRGB(512-x,256,x)
+    display.ttf_draw(fnt,text,xpos+round(5*cos(x)),ypos+round(5*sin(x)),color)
 
-display.ttf_scale_font(64)
-display.ttf_draw(text,50,180,amoled.MAGENTA)
+fnt.deinit()
 
-display.ttf_scale_font(128)
-display.ttf_draw(text,50,320,amoled.BLUE)
-
+display.deinit()
