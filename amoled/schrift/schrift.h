@@ -17,8 +17,9 @@
 #ifndef SCHRIFT_H
 #define SCHRIFT_H 1
 
-#include <stddef.h> /* size_t */
-#include <stdint.h> /* uint32_t, uint32_t */
+#include "py/obj.h" // mp_obj_base_t, bool
+#include <stddef.h> // size_t
+#include <stdint.h> // uint32_t, uint32_t
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,25 +27,27 @@ extern "C" {
 
 #define SFT_DOWNWARD_Y 0x01
 
-typedef struct SFT			SFT;
-typedef struct SFT_Font     SFT_Font;
-typedef uint32_t 			SFT_UChar; /* Guaranteed to be compatible with char32_t. */
-typedef uint32_t 			SFT_Glyph;
-typedef struct SFT_LMetrics SFT_LMetrics;
-typedef struct SFT_GMetrics SFT_GMetrics;
-typedef struct SFT_Kerning  SFT_Kerning;
-typedef struct SFT_Image    SFT_Image;
+typedef struct _SFT				SFT;
+typedef struct _SFT_Font     	SFT_Font;
+typedef uint32_t 				SFT_UChar; /* Guaranteed to be compatible with char32_t. */
+typedef uint32_t 				SFT_Glyph;
+typedef struct _SFT_LMetrics 	SFT_LMetrics;
+typedef struct _SFT_GMetrics 	SFT_GMetrics;
+typedef struct _SFT_Kerning  	SFT_Kerning;
+typedef struct _SFT_Image    	SFT_Image;
 
-struct SFT {
-	SFT_Font	*font;
+struct _SFT {
+	mp_obj_base_t base;
+	SFT_Font	*font;	  // Added to make SFT objects
 	double		xScale;
 	double		yScale;
 	double		xOffset;
 	double		yOffset;
+	bool		kerning;  // Added to hold kerning correction in SFT
 	int			flags;
 };
 
-struct SFT_Font
+struct _SFT_Font
 {
 	const uint8_t	*memory;
 	uint32_t		size;
@@ -54,26 +57,26 @@ struct SFT_Font
 	uint16_t		numLongHmtx;
 };
 
-struct SFT_LMetrics {
+struct _SFT_LMetrics {
 	double		ascender;
 	double		descender;
 	double		lineGap;
 };
 
-struct SFT_GMetrics {
-	double		advanceWidth;
-	double		leftSideBearing;
-	int			yOffset;
-	int			minWidth;
-	int			minHeight;
+struct _SFT_GMetrics {
+	double		advanceWidth;		//distance between 2 char
+	double		leftSideBearing;	//distance from origin to left side 
+	int			yOffset;			//distance from origin to top (usually negative)
+	int			minWidth;			//width of draw envelopp
+	int			minHeight;			//height of draw envelopp
 };
 
-struct SFT_Kerning {
-	double		xShift;
-	double		yShift;
+struct _SFT_Kerning {
+	double		xShift;				//Horizontal shift of next char to reduce spacing
+	double		yShift;				//Vertical ...
 };
 
-struct SFT_Image {
+struct _SFT_Image {
 	uint8_t		*pixels;
 	int			width;
 	int			height;
