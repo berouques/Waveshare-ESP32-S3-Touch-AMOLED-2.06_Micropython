@@ -185,14 +185,7 @@ struct _amoled_AMOLED_obj_t {
 	bool 		hold_display;	// True => skip display refresh until decided
 	
 	//File pointer 
-		
 	mp_file_t 	*fp;			//File object
-
-	//TTF Font support
-	SFT 		sft;			// True Type font object
-	bool		kerni_corr;		// Apply Kerning correction 
-	bool		alpha_corr;		// Apply Aliasing correction
-	
 };
 
 struct _IODEV {
@@ -211,7 +204,16 @@ struct _IODEV {
 };
 
 mp_obj_t amoled_AMOLED_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args);
+
 extern const mp_obj_type_t amoled_AMOLED_type;
+
+/*LUDO DEV TRIAL*/
+
+mp_obj_t amoled_TTF_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args);
+
+extern const mp_obj_type_t amoled_TTF_type;
+
+/*LUDO DEV TRIAL*/
 
 #ifdef  __cplusplus
 }
