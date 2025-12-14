@@ -91,6 +91,8 @@ The firmware is provided each time when I update this repo.
 - fill_bubble_rect
 - circle
 - fill_circle
+- ellipse * New
+- fill_ellipse *New
 - polygons
 - fill_polygons
 - fast_hline
@@ -317,6 +319,14 @@ dir(amoled.AMOLED)
 
   Draw a circle with the middle point (x, y) with the radius r of the color.
 
+  - `fill_ellipse(x, y, rx, ry, color)`
+
+  Draw an ellipse with the middle point (x, y) with radius rx & ry and fill it with the color.
+
+- `ellipse(x, y, rx, ry, color)`
+
+  Draw an ellipse with the middle point (x, y) with the radius rx & ry of the color.
+
 - `bitmap(x0, y0, x1, y1, buf)`
 
   Bitmap the content of a bytearray buf filled with color565 values starting from (x0, y0) to (x1, y1). Currently, the user is responsible for the provided buf content.
@@ -346,20 +356,22 @@ dir(amoled.AMOLED)
 - `draw_len(vector_font, s[, scale]`
   Returns the string's width in pixels if drawn with the specified font.
 
-- `ttf_load_font("path_to_ttf_font.ttf")`
-  Loads a TrueType font and replies True if everything was ok.
-
-- `ttf_init_font()`
-  Initializes the font, processing the loaded font to get all the metric needed.
-
-- `display.ttf_scale_font(xscale [,yscale])`
-  Scales the font as needed, in both direction if only xscale is given, otherwise differently in the two directions.
-
-- `display.ttf_draw(s,x,y,[fg_color, bg_color])`
+- `ttf_draw(ttf_font, s,x,y,[fg_color, bg_color])`
   Displays the string s, at coordonates x,y. Defaults front color is white but can be defined. If no background color is given, the render will keep current background, otherwise it will use de given background color. Keep in mind that every caracter has its own dimension so the backgroung might be heterogenous (a small letter might be 32x32 whereas it's neighbour might be 32x64, in this case the upper background of the small letter is not rendered). I'll keep improving later.
 
-- `display.ttf_len(s)`
+- `display.ttf_len(ttf_font,s)`
   Gives the width of the string...
+
+For ttf font you have to declare
+
+  - `ttf_font = amoled.SFT("path_to_ttf_font.ttf", xscale = xx, yscale = yy, kerning = true/false)`
+  Create a font object depending on the path file given, defaut scales are 16, and kerning correction to shorten "VA" space, is true by default 
+
+  - `ttf_font.scale(xscale, yscale)`
+  Allows to resize font directly
+
+- `ttf_font.deinit()`
+  Will release font
 
 
 ## Related Repositories
@@ -413,6 +425,7 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
 
 
 
