@@ -49,7 +49,7 @@ A major part of the code works for 16bpp colorset, event some other are already 
 #include <math.h>
 #include <wchar.h>
 
-#define AMOLED_DRIVER_VERSION "14.12.2025"
+#define AMOLED_DRIVER_VERSION "15.12.2025"
 
 #define SWAP16(a, b) { int16_t t = a; a = b; b = t; }
 #define ABS(N) (((N) < 0) ? (-(N)) : (N))
@@ -79,26 +79,26 @@ const char* color_space_desc[] = {
 
 // Rotation Matrix { madctl, width, height, colstart, rowstart }
 static const amoled_rotation_t ORIENTATIONS_RM690B0[4] = {
-    { 0,								450, 600, 16, 0},
-    { LCD_CMD_MX_BIT | LCD_CMD_MV_BIT, 	600, 450, 0, 16}, // Column decrease + Row-Col exchange
-    { LCD_CMD_MX_BIT | LCD_CMD_MY_BIT, 	450, 600, 16, 0}, // Column decrease + Row decrease
-    { LCD_CMD_MV_BIT | LCD_CMD_MY_BIT, 	600, 450, 0, 16}  // Row decrease + Row-Col exchange
+    { MADCTL_DEFAULT,						  450, 600, 16, 0},
+    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MV, 600, 450, 0, 16}, // Column decrease + Row-Col exchange
+    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MY, 450, 600, 16, 0}, // Column decrease + Row decrease
+    { MADCTL_DEFAULT | MADCTL_MV | MADCTL_MY, 600, 450, 0, 16}  // Row decrease + Row-Col exchange
 };
 
 static const amoled_rotation_t ORIENTATIONS_RM67162[4] = {
-    { 0,								240, 536, 0, 0},
-    { LCD_CMD_MX_BIT | LCD_CMD_MV_BIT, 	536, 240, 0, 0},
-    { LCD_CMD_MX_BIT | LCD_CMD_MY_BIT, 	240, 536, 0, 0},
-    { LCD_CMD_MV_BIT | LCD_CMD_MY_BIT, 	536, 240, 0, 0}
+    { MADCTL_DEFAULT,							240, 536, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MV, 	536, 240, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MY, 	240, 536, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MV | MADCTL_MY, 	536, 240, 0, 0}
 };
 
-//No rotation for SH8601, just mirror Up/Down, Left/Right and both together
 static const amoled_rotation_t ORIENTATIONS_SH8601[4] = {
-    { 0,								368, 448, 0, 0},
-    { LCD_CMD_MX_BIT, 					368, 448, 0, 0},
-    { LCD_CMD_MY_BIT, 					368, 448, 0, 0},
-    { LCD_CMD_MX_BIT | LCD_CMD_MY_BIT, 	368, 448, 0, 0}
+    { MADCTL_DEFAULT,								368, 448, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_RSMX, 				368, 448, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_RSMY, 				368, 448, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_RSMX | MADCTL_RSMY, 	368, 448, 0, 0}
 };
+
 
 /* for each : fltr_col_rd, bitsw_col_rd, fltr_col_gr, bitsw_col_gr, fltr_col_bl
 16bpp = 2 bytes continuous 5 bits RED, 6 bits GREEN and 5 bits BLUE
