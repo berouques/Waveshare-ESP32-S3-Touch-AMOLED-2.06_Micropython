@@ -79,25 +79,25 @@ const char* color_space_desc[] = {
 
 // Rotation Matrix { madctl, width, height, colstart, rowstart }
 static const amoled_rotation_t ORIENTATIONS_RM690B0[4] = {
-    { MADCTL_DEFAULT,								450, 600, 16, 0},
-    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MV, 		600, 450, 0, 16}, // Column decrease + Row-Col exchange
-    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MY, 		450, 600, 16, 0}, // Column decrease + Row decrease
-    { MADCTL_DEFAULT | MADCTL_MV | MADCTL_MY, 		600, 450, 0, 16}  // Row decrease + Row-Col exchange
+    { 0,								450, 600, 16, 0},
+    { LCD_CMD_MX_BIT | LCD_CMD_MV_BIT, 	600, 450, 0, 16}, // Column decrease + Row-Col exchange
+    { LCD_CMD_MX_BIT | LCD_CMD_MY_BIT, 	450, 600, 16, 0}, // Column decrease + Row decrease
+    { LCD_CMD_MV_BIT | LCD_CMD_MY_BIT, 	600, 450, 0, 16}  // Row decrease + Row-Col exchange
 };
 
 static const amoled_rotation_t ORIENTATIONS_RM67162[4] = {
-    { MADCTL_DEFAULT,								240, 536, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MV, 		536, 240, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MY, 		240, 536, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_MV | MADCTL_MY, 		536, 240, 0, 0}
+    { 0,								240, 536, 0, 0},
+    { LCD_CMD_MX_BIT | LCD_CMD_MV_BIT, 	536, 240, 0, 0},
+    { LCD_CMD_MX_BIT | LCD_CMD_MY_BIT, 	240, 536, 0, 0},
+    { LCD_CMD_MV_BIT | LCD_CMD_MY_BIT, 	536, 240, 0, 0}
 };
 
 //No rotation for SH8601, just mirror Up/Down, Left/Right and both together
 static const amoled_rotation_t ORIENTATIONS_SH8601[4] = {
-    { MADCTL_DEFAULT,								368, 448, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_RSMX, 				368, 448, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_RSMY, 				368, 448, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_RSMX | MADCTL_RSMY, 	368, 448, 0, 0}
+    { 0,								368, 448, 0, 0},
+    { LCD_CMD_MX_BIT, 					368, 448, 0, 0},
+    { LCD_CMD_MY_BIT, 					368, 448, 0, 0},
+    { LCD_CMD_MX_BIT | LCD_CMD_MY_BIT, 	368, 448, 0, 0}
 };
 
 /* for each : fltr_col_rd, bitsw_col_rd, fltr_col_gr, bitsw_col_gr, fltr_col_bl
@@ -133,6 +133,7 @@ uint8_t *bitmap_data = NULL;
 /*----------------------------------------------------------------------------------------------------
 Below are Bus transmission related functions.
 -----------------------------------------------------------------------------------------------------*/
+
 
 // send a buffer to the panel display memory using the panel tx_color
 static void write_color(amoled_AMOLED_obj_t *self, const void *buf, int len) {
@@ -171,9 +172,11 @@ static mp_obj_t amoled_AMOLED_send_cmd(size_t n_args, const mp_obj_t *args)
 
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_send_cmd_obj, 4, 4, amoled_AMOLED_send_cmd);
 
+
 /*----------------------------------------------------------------------------------------------------
 Below are initialization related functions.
 -----------------------------------------------------------------------------------------------------*/
+
 
 static mp_obj_t amoled_AMOLED_reset(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -195,7 +198,6 @@ static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_reset_obj, amoled_AMOLED_reset);
 
 
 //Init function for RM67162, RM690B0 and SH8601
-
 static mp_obj_t amoled_AMOLED_init(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
@@ -309,7 +311,7 @@ mp_obj_t amoled_AMOLED_make_new(const mp_obj_type_t *type, size_t n_args, size_t
 	//Display type 0 = TDisplay S3 RM61672 / 1 = T4-S3 RM690B0 / 2 = WAVESHARE SH8601
 	self->type = args[ARG_type].u_int;
 
-    // self->max_width_value etc will be initialized in the rotation later.
+    //self->max_width_value etc will be initialized in the rotation later.
     //self->width = ((amoled_qspi_bus_obj_t *)self->bus_obj)->width;
     //self->height = ((amoled_qspi_bus_obj_t *)self->bus_obj)->height;
   
@@ -324,11 +326,11 @@ mp_obj_t amoled_AMOLED_make_new(const mp_obj_type_t *type, size_t n_args, size_t
 	// set RGB or BGR
     switch (self->color_space) {
         case COLOR_SPACE_RGB:
-            self->madctl_val &= ~MADCTL_BGR;  //Set Color bit to 0
+            self->madctl_val &= ~LCD_CMD_BGR_BIT;  //Set Color bit to 0
         break;
 
         case COLOR_SPACE_BGR:
-            self->madctl_val |= MADCTL_BGR; //Set Color bit to 1
+            self->madctl_val |= LCD_CMD_BGR_BIT; //Set Color bit to 1
         break;
 
         default:
@@ -443,10 +445,10 @@ static mp_obj_t amoled_TTF_deinit(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(amoled_TTF_deinit_obj, amoled_TTF_deinit);
 
 
-
 /*----------------------------------------------------------------------------------------------------
 Below are library information related functions.
 -----------------------------------------------------------------------------------------------------*/
+
 
 //Print display informations
 static void amoled_AMOLED_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t  kind) {
@@ -454,23 +456,21 @@ static void amoled_AMOLED_print(const mp_print_t *print, mp_obj_t self_in, mp_pr
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_printf(
         print,
-        "<AMOLED bus=%p, reset=%p, color_space=%s, bpp=%u, version=%s>",
+        "<AMOLED Display - Bus=%p, Reset=%p, Color_space=%s, Bpp=%u>",
         self->bus_obj,
         self->reset,
         color_space_desc[self->color_space],
-        self->bpp,
-        AMOLED_DRIVER_VERSION
+        self->bpp
     );
 }
 
-/*LUDO DEV TRIAL*/
 //Print Font informations
 static void amoled_TTF_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t  kind) {
     (void) kind;
     SFT *self = MP_OBJ_TO_PTR(self_in);
     mp_printf(
         print,
-        "<AMOLED font Scale X=%f Y=%f, Offset X=%f Y=%f, Kerning=%u,Flags=%u>",
+        "<AMOLED TTF - Scale X=%.1f Y=%.1f, Offset X=%.0f Y=%.0f, Kerning=%u, Flags=%u>",
         self->xScale,
         self->yScale,
 		self->xOffset,
@@ -491,6 +491,7 @@ static MP_DEFINE_CONST_FUN_OBJ_0(amoled_AMOLED_version_obj, amoled_AMOLED_versio
 /*-----------------------------------------------------------------------------------------------------
 Below are buffers and screen buffers related function.
 ------------------------------------------------------------------------------------------------------*/
+
 
 //Return color from R,G,B values
 static uint16_t colorRGB(uint8_t r, uint8_t g, uint8_t b) {
@@ -610,9 +611,11 @@ static void fill_frame_buffer(amoled_AMOLED_obj_t *self, uint16_t color, uint16_
 	}
 }
 
+
 /*-----------------------------------------------------------------------------------------------------
 Below are drawing functions : Pixel, lines, rectangles, filled circles, a.s.o
 ------------------------------------------------------------------------------------------------------*/
+
 
 static void pixel(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t color) {
 	
@@ -1665,6 +1668,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_polygon_obj, 5, 8,
 Below are Monospaced fond related functions
 ------------------------------------------------------------------------------------------------------*/
 
+
 //	text(font_module, string, x, y[, fg, bg])
 static mp_obj_t amoled_AMOLED_text(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
@@ -1766,9 +1770,11 @@ static mp_obj_t amoled_AMOLED_text_len(size_t n_args, const mp_obj_t *args) {
 
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_text_len_obj, 3, 3, amoled_AMOLED_text_len);
 
+
 /*---------------------------------------------------------------------------------------------------
 Below are Variable Fonts related functions
 ----------------------------------------------------------------------------------------------------*/
+
 
 //	write(font_module, string, x, y[, fg, bg)
 static mp_obj_t amoled_AMOLED_write(size_t n_args, const mp_obj_t *args) {
@@ -1920,9 +1926,11 @@ static mp_obj_t amoled_AMOLED_write_len(size_t n_args, const mp_obj_t *args) {
 
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_write_len_obj, 3, 3, amoled_AMOLED_write_len);
 
+
 /*---------------------------------------------------------------------------------------------------
 Below are Hershey Vectorial Fonts related functions
 ----------------------------------------------------------------------------------------------------*/
+
 
 //	draw(font, string , x, y[, fg, bg])
 static mp_obj_t amoled_AMOLED_draw(size_t n_args, const mp_obj_t *args) {
@@ -2062,9 +2070,12 @@ static mp_obj_t amoled_AMOLED_draw_len(size_t n_args, const mp_obj_t *args) {
 
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_draw_len_obj, 3, 4, amoled_AMOLED_draw_len);
 
+
 /*---------------------------------------------------------------------------------------------------
 Below are schrift TTF related functions
 ----------------------------------------------------------------------------------------------------*/
+
+
 /*
 //Convert UTF32 from UTF8
 static size_t utf8_to_utf32(const char *utf8, uint32_t *utf32, size_t max)
@@ -2420,6 +2431,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ttf_len_obj, 3, 3, amol
 Below are bitmap related functions
 ------------------------------------------------------------------------------------------------------*/
 
+
 //bitmap(self,x0,y0,x1,y1,bitmap)
 static mp_obj_t amoled_AMOLED_bitmap(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
@@ -2450,11 +2462,9 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_bitmap_obj, 6, 6, amole
 Below are JPG related functions.
 -----------------------------------------------------------------------------------------------------*/
 
-/* file input function
-Returns number of bytes read (zero on error)
-jd = Decompression object
-buff = Pointer to read buffer
-nbytes = Number of bytes to read/remove*/
+
+/* file input function returns number of bytes read (zero on error)
+jd = Decompression object, buff = Pointer to read buffer, nbytes = Number of bytes to read/remove*/
 
 static unsigned int in_func(JDEC *jd, uint8_t *buff, unsigned int nbyte) {               
     IODEV *dev = (IODEV *)jd->device;   // Device identifier for the session (5th argument of jd_prepare function)
@@ -2471,11 +2481,8 @@ static unsigned int in_func(JDEC *jd, uint8_t *buff, unsigned int nbyte) {
     return 0;
 }
 
-// fast output function
-// returns 1:Ok, 0:Aborted
-// jd = Decompression object
-// bitmap = Bitmap data to be output
-// rect = Rectangular region of output image
+// fast output function returns 1:Ok, 0:Aborted
+// jd = Decompression object, bitmap = Bitmap data to be output, rect = Rectangular region of output image
 
 static int out_fast(JDEC *jd,void *bitmap, JRECT *rect) {
     IODEV *dev = (IODEV *)jd->device;
@@ -2691,18 +2698,19 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_jpg_decode_obj, 2, 6, a
 Below are screencontroler related functions
 ----------------------------------------------------------------------------------------------------*/
 
+
 static mp_obj_t amoled_AMOLED_mirror(mp_obj_t self_in, mp_obj_t mirror_x_in, mp_obj_t mirror_y_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
     if (mp_obj_is_true(mirror_x_in)) {
-        self->madctl_val |= (1 << 6);
+        self->madctl_val |= LCD_CMD_MX_BIT;
     } else {
-        self->madctl_val &= ~(1 << 6);
+        self->madctl_val &= ~LCD_CMD_MX_BIT;
     }
     if (mp_obj_is_true(mirror_y_in)) {
-        self->madctl_val |= (1 << 7);
+        self->madctl_val |= LCD_CMD_MY_BIT;
     } else {
-        self->madctl_val &= ~(1 << 7);
+        self->madctl_val &= ~LCD_CMD_MY_BIT;
     }
     write_spi(self, LCD_CMD_MADCTL, (uint8_t[]) { self->madctl_val }, 1);
     return mp_const_none;
@@ -2714,9 +2722,9 @@ static MP_DEFINE_CONST_FUN_OBJ_3(amoled_AMOLED_mirror_obj, amoled_AMOLED_mirror)
 static mp_obj_t amoled_AMOLED_swap_xy(mp_obj_t self_in, mp_obj_t swap_axes_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (mp_obj_is_true(swap_axes_in)) {
-        self->madctl_val |= 1 << 5;
+        self->madctl_val |= LCD_CMD_MV_BIT;
     } else {
-        self->madctl_val &= ~(1 << 5);
+        self->madctl_val &= ~LCD_CMD_MV_BIT;
     }
     write_spi(self, LCD_CMD_MADCTL, (uint8_t[]) { self->madctl_val }, 1);
     return mp_const_none;
@@ -2953,9 +2961,6 @@ static const mp_rom_map_elem_t amoled_AMOLED_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_write_len),       MP_ROM_PTR(&amoled_AMOLED_write_len_obj)       },
     { MP_ROM_QSTR(MP_QSTR_draw),            MP_ROM_PTR(&amoled_AMOLED_draw_obj)            },
     { MP_ROM_QSTR(MP_QSTR_draw_len),        MP_ROM_PTR(&amoled_AMOLED_draw_len_obj)        },
-/*	{ MP_ROM_QSTR(MP_QSTR_ttf_load_font),   MP_ROM_PTR(&amoled_AMOLED_ttf_load_font_obj)   },
-	{ MP_ROM_QSTR(MP_QSTR_ttf_init_font),   MP_ROM_PTR(&amoled_AMOLED_ttf_init_font_obj)   },
-	{ MP_ROM_QSTR(MP_QSTR_ttf_scale_font),  MP_ROM_PTR(&amoled_AMOLED_ttf_scale_font_obj)  },*/
 	{ MP_ROM_QSTR(MP_QSTR_ttf_draw),   		MP_ROM_PTR(&amoled_AMOLED_ttf_draw_obj)        },
 	{ MP_ROM_QSTR(MP_QSTR_ttf_len),   		MP_ROM_PTR(&amoled_AMOLED_ttf_len_obj)         },	
     { MP_ROM_QSTR(MP_QSTR_mirror),          MP_ROM_PTR(&amoled_AMOLED_mirror_obj)          },
@@ -2978,11 +2983,9 @@ static const mp_rom_map_elem_t amoled_AMOLED_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_MONOCHROME),      MP_ROM_INT(COLOR_SPACE_MONOCHROME)             },
 };
 
-
 static MP_DEFINE_CONST_DICT(amoled_AMOLED_locals_dict, amoled_AMOLED_locals_dict_table);
 
-/*LUDO DEV TRIAL*/
-//TTF Font dictionnary
+//amoled.TTF dictionnary
 static const mp_rom_map_elem_t amoled_TTF_locals_dict_table[] = {
 	{ MP_ROM_QSTR(MP_QSTR_scale),	MP_ROM_PTR(&amoled_TTF_scale_obj)	 },
 	{ MP_ROM_QSTR(MP_QSTR_deinit),  MP_ROM_PTR(&amoled_TTF_deinit_obj)   },
@@ -2990,7 +2993,7 @@ static const mp_rom_map_elem_t amoled_TTF_locals_dict_table[] = {
 };
 
 static MP_DEFINE_CONST_DICT(amoled_TTF_locals_dict, amoled_TTF_locals_dict_table);
-/*LUDO DEV TRIAL*/
+
 
 #ifdef MP_OBJ_TYPE_GET_SLOT
 MP_DEFINE_CONST_OBJ_TYPE(
@@ -3002,7 +3005,6 @@ MP_DEFINE_CONST_OBJ_TYPE(
     locals_dict, (mp_obj_dict_t *)&amoled_AMOLED_locals_dict
 );
 
-/*LUDO DEV TRIAL*/
 MP_DEFINE_CONST_OBJ_TYPE(
     amoled_TTF_type,
     MP_QSTR_TTF,
@@ -3011,9 +3013,9 @@ MP_DEFINE_CONST_OBJ_TYPE(
     make_new, amoled_TTF_make_new,
     locals_dict, (mp_obj_dict_t *)&amoled_TTF_locals_dict
 );
-/*LUDO DEV TRIAL*/
 
 #else
+	
 const mp_obj_type_t amoled_AMOLED_type = {
     { &mp_type_type },
     .name        = MP_QSTR_AMOLED,
@@ -3022,7 +3024,6 @@ const mp_obj_type_t amoled_AMOLED_type = {
     .locals_dict = (mp_obj_dict_t *)&amoled_AMOLED_locals_dict,
 };
 
-/*LUDO DEV TRIAL*/
 const mp_obj_type_t amoled_TTF_type = {
 	{ &mp_type_type },
 	.name 		= MP_QSTR_TTF,
@@ -3030,20 +3031,17 @@ const mp_obj_type_t amoled_TTF_type = {
 	.make_new	= amoled_TTF_make_new,
 	.locals_dic = (mp_obj_dict_t *)&amoled_TTF_locals_dict,
 };
-/*LUDO DEV TRIAL*/
 
 #endif
 
 
-
-
-//amoled global dictionnary
+//amoled global library dictionnary
 
 static const mp_map_elem_t mp_module_amoled_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),   MP_OBJ_NEW_QSTR(MP_QSTR_amoled)       },
     { MP_ROM_QSTR(MP_QSTR_AMOLED),     (mp_obj_t)&amoled_AMOLED_type         },
     { MP_ROM_QSTR(MP_QSTR_QSPIPanel),  (mp_obj_t)&amoled_qspi_bus_type       },
-    { MP_ROM_QSTR(MP_QSTR_TTF),  	   (mp_obj_t)&amoled_TTF_type       	 }, //LUDO DEV TRIAL
+    { MP_ROM_QSTR(MP_QSTR_TTF),  	   (mp_obj_t)&amoled_TTF_type       	 },
     { MP_ROM_QSTR(MP_QSTR_RGB),        MP_ROM_INT(COLOR_SPACE_RGB)           },
     { MP_ROM_QSTR(MP_QSTR_BGR),        MP_ROM_INT(COLOR_SPACE_BGR)           },
     { MP_ROM_QSTR(MP_QSTR_MONOCHROME), MP_ROM_INT(COLOR_SPACE_MONOCHROME)    },
@@ -3058,7 +3056,6 @@ static const mp_map_elem_t mp_module_amoled_globals_table[] = {
 };
 
 static MP_DEFINE_CONST_DICT(mp_module_amoled_globals, mp_module_amoled_globals_table);
-
 
 
 const mp_obj_module_t mp_module_amoled = {
