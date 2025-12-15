@@ -39,6 +39,7 @@ extern "C" {
 #define LCD_CMD_TEON         0x35 // Turns on tearing effect
 
 #define LCD_CMD_MADCTL       0x36     // Memory data access control
+#define LCD_CMD_MAD_DEFAULT	 0		  // Default Value
 #define LCD_CMD_MH_BIT       (1 << 2) // Display data latch order, 0: refresh left to right, 1: refresh right to left
 #define LCD_CMD_BGR_BIT      (1 << 3) // RGB/BGR order, 0: RGB, 1: BGR
 #define LCD_CMD_ML_BIT       (1 << 4) // Line address order, 0: refresh top to bottom, 1: refresh bottom to top
@@ -80,17 +81,6 @@ extern "C" {
 #define LCD_FAC_SPI			0x24 // SPI
 #define LCD_FAC_SWIRE1		0x5A // SWIRE
 #define LCD_FAC_SWIRE2		0x5B // SWIRE
-
-//SH8601, RM690B0 and RM67162 MADCTRL and RGB
-#define MADCTL_MY			0x80 // D7  = 1 Row address decreasing vertically
-#define MADCTL_MX			0x40 // D6 = 1 Column adress decreasing horizontal
-#define MADCTL_MV			0x20 // D5 = 1 Row - Column exchange
-#define MADCTL_ML			0x10 // D4 = 1 Vertical Refresh Order Bottom to Top
-#define MADCTL_BGR			0x08 // D3 = 1 for BGR (0 for RGB)
-#define MADCTL_MH			0x04 // D2 = RESERVED
-#define MADCTL_RSMX			0x02 // D1 = 1 Flip horizontally
-#define MADCTL_RSMY			0x01 // D0 = 1 Flip vertically
-#define MADCTL_DEFAULT		0x00
 
 // BPP Colmod 
 #define COLMOD_CAL_16   	0x55
@@ -204,16 +194,10 @@ struct _IODEV {
 };
 
 mp_obj_t amoled_AMOLED_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args);
-
-extern const mp_obj_type_t amoled_AMOLED_type;
-
-/*LUDO DEV TRIAL*/
-
 mp_obj_t amoled_TTF_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args);
 
+extern const mp_obj_type_t amoled_AMOLED_type;
 extern const mp_obj_type_t amoled_TTF_type;
-
-/*LUDO DEV TRIAL*/
 
 #ifdef  __cplusplus
 }
