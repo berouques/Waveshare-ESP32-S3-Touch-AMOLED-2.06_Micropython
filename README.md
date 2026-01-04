@@ -5,6 +5,7 @@
 --------------------------------------------------------------------------------------------------
 
 **Updated 04/01/2026 : ARTEFACTS GONE AWAY...**
+
 **Updated 30/11/2025 : NOW WORKS WITH TRUETYPE FONTS THANKS TO LIBSCHRIFT INTEGRATION**
 
 ![TTF](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/ttf_thumb.jpg?raw=true)
@@ -436,6 +437,7 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
 
 
 
