@@ -39,13 +39,13 @@ extern "C" {
 #define LCD_CMD_TEON         0x35 // Turns on tearing effect
 
 #define LCD_CMD_MADCTL       0x36     // Memory data access control
-#define LCD_CMD_MAD_DEFAULT	 0		  // Default Value
-#define LCD_CMD_MH_BIT       (1 << 2) // Display data latch order, 0: refresh left to right, 1: refresh right to left
-#define LCD_CMD_BGR_BIT      (1 << 3) // RGB/BGR order, 0: RGB, 1: BGR
-#define LCD_CMD_ML_BIT       (1 << 4) // Line address order, 0: refresh top to bottom, 1: refresh bottom to top
-#define LCD_CMD_MV_BIT       (1 << 5) // Row/Column order, 0: normal mode, 1: reverse mode
-#define LCD_CMD_MX_BIT       (1 << 6) // Column address order, 0: left to right, 1: right to left
-#define LCD_CMD_MY_BIT       (1 << 7) // Row address order, 0: top to bottom, 1: bottom to top
+#define MADCTL_DEFAULT	     0x00	  // Default Value
+#define MADCTL_MH_BIT        (1 << 2) // Display data latch order, 0: refresh left to right, 1: refresh right to left
+#define MADCTL_BGR_BIT       (1 << 3) // RGB/BGR order, 0: RGB, 1: BGR
+#define MADCTL_ML_BIT        (1 << 4) // Line address order, 0: refresh top to bottom, 1: refresh bottom to top
+#define MADCTL_MV_BIT        (1 << 5) // Row/Column order, 0: normal mode, 1: reverse mode
+#define MADCTL_MX_BIT        (1 << 6) // Column address order, 0: left to right, 1: right to left
+#define MADCTL_MY_BIT        (1 << 7) // Row address order, 0: top to bottom, 1: bottom to top
 
 #define LCD_CMD_VSCSAD       0x37 // Vertical scroll start address
 #define LCD_CMD_IDMOFF       0x38 // Recover from IDLE mode
@@ -87,6 +87,11 @@ extern "C" {
 #define COLMOD_CAL_18   	0x66
 #define COLMOD_CAL_24   	0x77
 
+//BPP Filter 
+#define COLMOD_FIL_16   	0x0
+#define COLMOD_FIL_18   	0x1
+#define COLMOD_FIL_24   	0x2
+
 // Color definitions in 16bpp RGB (litte indian : 1F00 => 001F mean Full Blue)
 
 #define BLACK   0x0000
@@ -101,6 +106,9 @@ extern "C" {
 #define COLOR_SPACE_RGB        (0)
 #define COLOR_SPACE_BGR        (1)
 #define COLOR_SPACE_MONOCHROME (2)
+
+#define RAM_ALIGNMENT (16)
+
 
 typedef struct	_Point					Point;
 typedef struct	_Polygon				Polygon;
@@ -142,16 +150,14 @@ struct _amoled_AMOLED_obj_t {
     mp_obj_t 			reset;
 	bool 				reset_level;	//True fo hard reset
 	
-	// m_malloc'd pointers
+	// Memory allocated pointers
     void 		*work;					// work buffer for jpg & png decoding
     uint8_t 	*scanline_ringbuf;  	// png scanline_ringbuf
     uint8_t 	*palette;           	// png palette
     uint8_t 	*trans_palette;     	// png trans_palette
-    uint8_t		*gamma_table;       	// png gamma_table
-	uint16_t 	*frame_buffer;			// Global Frame buffer
-	uint16_t 	*pixel_buffer;			// JPG dedicated buffer (to be gathered with partial frame buffer...)
-	uint16_t 	*partial_frame_buffer;	// Partial Frame buffer
-	size_t		buffer_size;
+    uint8_t		*gamma_table;       	// png gamma_table		
+	uint16_t 	*fram_buf;				// Global Frame buffer
+	uint16_t 	*temp_buf;				// Temporary Frame buffer
 
 	// Display parameters
 	uint8_t 	type;					// Type 0 : RM67162 / 1 : RM690B0 / 3 : SH8601
@@ -161,21 +167,19 @@ struct _amoled_AMOLED_obj_t {
     uint8_t 	colmod_cal;				// Current value of LCD_CMD_COLMOD register
     uint16_t 	width;					// Display width
     uint16_t 	height;					// Display height
-    uint16_t 	max_width_value;
-    uint16_t 	max_height_value;
-	uint16_t 	x_gap;					// Gap for 1 columns
-    uint16_t 	y_gap;					// Gap for 1 line
+	uint16_t 	col_start;				// Gap for 1 columns
+    uint16_t 	row_start;				// Gap for 1 line
 	uint8_t 	color_space;			// 0 : RGB / 1 : BGR / 2 : Mono
     uint8_t 	bpp;					// Diplay bit per pixel : 16 / 18 / 24
     uint8_t 	Bpp;					// Display Byte per pixel : 2 / 3 / 3
-	bpp_process_t bpp_process;				// bpp process filter and switches
+	uint8_t		te;						// tearing effect 0/1
+	uint16_t    scanline;				// tearing scanline
+	bpp_process_t bpp_process;			// bpp process filter and switches
 
 	//Frame Buffer related
-    bool 		auto_refresh;	// True => Every action is directly rendered to display
-	bool 		hold_display;	// True => skip display refresh until decided
-	
-	//File pointer 
-	mp_file_t 	*fp;			//File object
+    bool 		auto_refresh;           // True => Every action is directly rendered to display
+	bool 		hold_display;           // True => skip display refresh until decided
+	uint8_t 	bus_methode;            //FOR DEVELOPPEMENT PURPOSE
 };
 
 struct _IODEV {
