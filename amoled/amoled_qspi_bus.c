@@ -15,7 +15,7 @@
 
 #define DEBUG_printf(...)
 
-#define SEND_BUF_SIZE           (16384)
+#define SEND_BUF_SIZE  0x8000  // 32kb
 
 #include <string.h>
 
@@ -44,8 +44,10 @@ void hal_lcd_qspi_panel_construct(mp_obj_base_t *self)
         .data2_io_num = qspi_panel_obj->databus_pins[2],
         .data3_io_num = qspi_panel_obj->databus_pins[3],
         //.max_transfer_sz = qspi_panel_obj->width * qspi_panel_obj->height * sizeof(uint16_t),
-        .max_transfer_sz = (0x4000 * 16) + 8,
-        .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_GPIO_PINS,
+        //.max_transfer_sz = (0x4000 * 16) + 8,
+		.max_transfer_sz = (SEND_BUF_SIZE * 16) + 8,
+        //.flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_GPIO_PINS,
+		.flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_GPIO_PINS | SPICOMMON_BUSFLAG_QUAD,  //DEBUG
     };
     esp_err_t ret = spi_bus_initialize(spi_obj->host, &buscfg, SPI_DMA_CH_AUTO);
     if (ret != 0) {
@@ -55,7 +57,7 @@ void hal_lcd_qspi_panel_construct(mp_obj_base_t *self)
 
     spi_device_interface_config_t devcfg = {
         .command_bits = qspi_panel_obj->cmd_bits,
-        .address_bits = 24,
+        .address_bits = 24,     // Set but unusefull as SPI_TRANS_VARIABLE_ADDR will be specified fot transation
         .mode = spi_obj->phase | (spi_obj->polarity << 1),
         .clock_speed_hz = qspi_panel_obj->pclk,
         .spics_io_num = -1,
@@ -108,37 +110,45 @@ static void hal_lcd_qspi_panel_tx_color(mp_obj_base_t *self,			// tx_color(self-
     machine_hw_spi_obj_t *spi_obj = ((machine_hw_spi_obj_t *)qspi_panel_obj->spi_obj);  // spi_obj is pointer to spi 
     spi_transaction_ext_t t;															// t is spi transactionner
 
-    mp_hal_pin_od_low(qspi_panel_obj->cs_pin);				// Activate SPI bus transfert by CS_Pin 
-    memset(&t, 0, sizeof(t));
+    mp_hal_pin_od_low(qspi_panel_obj->cs_pin);  // Activate SPI bus transfert by CS_Pin 
+    memset(&t, 0, sizeof(t));                   // Clear SPI transactionner
+	
+	//Preprare writting transaction
     t.base.flags = SPI_TRANS_MODE_QIO;
     t.base.cmd = 0x32;
-    t.base.addr = 0x002C00;									// 2C00 is the memory write adress (LCD_CMD_RAMWR)
+    t.base.addr = 0x002C00;                    // 2C00 is the memory write adress (LCD_CMD_RAMWR)
     spi_device_polling_transmit(spi_obj->spi, (spi_transaction_t *)&t);
 
-    uint8_t *p_color = (uint8_t *)color;					// p_color is the dynamic pointer to color buffer
+    uint8_t *p_color = (uint8_t *)color;      // Convert color buffer to uint8_t *
     size_t chunk_size;
-    size_t len = color_size;								// len is the length of dynamic color buffer
-    memset(&t, 0, sizeof(t));
-    t.base.flags = SPI_TRANS_MODE_QIO | \
-                    SPI_TRANS_VARIABLE_CMD | \
-                    SPI_TRANS_VARIABLE_ADDR | \
-                    SPI_TRANS_VARIABLE_DUMMY;
+    size_t len = color_size;                  // len is the length of dynamic color buffer
+    memset(&t, 0, sizeof(t));                 // Clear SPI transactionner
+	
+	// Set flafs : QIO = Quad line,  CMD = Cde will be tranmitted , ADDR = Adress will be tranmitted, DUMMY = Meet timing requirements
+    t.base.flags = SPI_TRANS_MODE_QIO | SPI_TRANS_VARIABLE_CMD | SPI_TRANS_VARIABLE_ADDR | SPI_TRANS_VARIABLE_DUMMY;
     t.command_bits = 0;
     t.address_bits = 0;
     t.dummy_bits = 0;
+	
+	//Added during checks over artefacts
+	//spi_device_acquire_bus(spi_obj->spi, portMAX_DELAY);
     
     do {
-        if (len > SEND_BUF_SIZE) { 							// shorten to send buffer max length
+        if (len > SEND_BUF_SIZE) {            // shorten to send buffer max length
             chunk_size = SEND_BUF_SIZE;
         } else {
-            chunk_size = len;								// chunk size if the remaining length of color_buffer
+            chunk_size = len;                // chunk size if the remaining length of color_buffer
         }
         t.base.tx_buffer = p_color;
-        t.base.length = chunk_size * 8;					//  /!\   *8 for bits 
+		t.base.length = chunk_size * 8;      //  Nb of bit to tranmit (=> *8) 
+		//Transmit using polling method
         spi_device_polling_transmit(spi_obj->spi, (spi_transaction_t *)&t);
-        len -= chunk_size;									// next chunk if it was over buffer max length
-        p_color += chunk_size;
+        len -= chunk_size;                   // next chunk if necessary
+        p_color += chunk_size;               
     } while (len > 0);
+	
+	//Added...
+	//spi_device_release_bus(spi_obj->spi);
 
     mp_hal_pin_od_high(qspi_panel_obj->cs_pin);				// Desactivate SPI bus transfert by CS_Pin 
 }
