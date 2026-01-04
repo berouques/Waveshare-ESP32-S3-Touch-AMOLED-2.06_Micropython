@@ -49,7 +49,7 @@ A major part of the code works for 16bpp colorset, event some other are already 
 #include <math.h>
 #include <wchar.h>
 
-#define AMOLED_DRIVER_VERSION "15.12.2025"
+#define AMOLED_DRIVER_VERSION "04.01.2026"
 
 #define SWAP16(a, b) { int16_t t = a; a = b; b = t; }
 #define ABS(N) (((N) < 0) ? (-(N)) : (N))
@@ -79,24 +79,24 @@ const char* color_space_desc[] = {
 
 // Rotation Matrix { madctl, width, height, colstart, rowstart }
 static const amoled_rotation_t ORIENTATIONS_RM690B0[4] = {
-    { MADCTL_DEFAULT,						  450, 600, 16, 0},
-    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MV, 600, 450, 0, 16}, // Column decrease + Row-Col exchange
-    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MY, 450, 600, 16, 0}, // Column decrease + Row decrease
-    { MADCTL_DEFAULT | MADCTL_MV | MADCTL_MY, 600, 450, 0, 16}  // Row decrease + Row-Col exchange
+    { MADCTL_DEFAULT,									450, 600, 16, 0},
+    { MADCTL_DEFAULT | MADCTL_MX_BIT | MADCTL_MV_BIT,	600, 450, 0, 16}, // Column decrease + Row-Col exchange
+    { MADCTL_DEFAULT | MADCTL_MX_BIT | MADCTL_MY_BIT,	450, 600, 16, 0}, // Column decrease + Row decrease
+    { MADCTL_DEFAULT | MADCTL_MV_BIT | MADCTL_MY_BIT,	600, 450, 0, 16}  // Row decrease + Row-Col exchange
 };
 
 static const amoled_rotation_t ORIENTATIONS_RM67162[4] = {
-    { MADCTL_DEFAULT,							240, 536, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MV, 	536, 240, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_MX | MADCTL_MY, 	240, 536, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_MV | MADCTL_MY, 	536, 240, 0, 0}
+    { MADCTL_DEFAULT,									240, 536, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MX_BIT | MADCTL_MV_BIT, 	536, 240, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MX_BIT | MADCTL_MY_BIT, 	240, 536, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MV_BIT | MADCTL_MY_BIT, 	536, 240, 0, 0}
 };
 
 static const amoled_rotation_t ORIENTATIONS_SH8601[4] = {
-    { MADCTL_DEFAULT,								368, 448, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_RSMX, 				368, 448, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_RSMY, 				368, 448, 0, 0},
-    { MADCTL_DEFAULT | MADCTL_RSMX | MADCTL_RSMY, 	368, 448, 0, 0}
+    { MADCTL_DEFAULT,					368, 448, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MX_BIT, 	368, 448, 0, 0}, //Flipped
+    { MADCTL_DEFAULT, 					368, 448, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MX_BIT, 	368, 448, 0, 0}
 };
 
 
@@ -107,11 +107,10 @@ static const amoled_rotation_t ORIENTATIONS_SH8601[4] = {
 Bit transmission is LSB first and MSB then !*/
 
 static const bpp_process_t BPP_PROCESS_GEN[3] = {
-    { 0xF800, 11, 0x07E0, 5, 0x001F},  //16bpp
+    { 0xF800, 11, 0x07E0, 5, 0x001F},		//16bpp
     { 0x3F0000, 16, 0x003F00, 8, 0x00003F}, //18bpp
     { 0xFF0000, 16, 0x00FF00, 8, 0x0000FF}, //24bpp
 };
-
 
 int mod(int x, int m) {
     int r = x % m;
@@ -125,9 +124,6 @@ int max_val(uint16_t x1, uint16_t x2) {
 int min_val(uint16_t x1, uint16_t x2) {
 	return (x1 < x2) ? x1 : x2;
 }
-
-static uint32_t bs_bit = 0;
-uint8_t *bitmap_data = NULL;
 
 
 /*----------------------------------------------------------------------------------------------------
@@ -173,6 +169,39 @@ static mp_obj_t amoled_AMOLED_send_cmd(size_t n_args, const mp_obj_t *args)
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_send_cmd_obj, 4, 4, amoled_AMOLED_send_cmd);
 
 
+static void set_area(amoled_AMOLED_obj_t *self, uint16_t SC, uint16_t SR, uint16_t EC, uint16_t ER) {
+    
+	/* As RM690B0 driver need offset (see ORIENTATIONS_GENERAL) then the memory area needs to follow offsets*/
+	SC += self->col_start;
+	SR += self->row_start;
+	EC += self->col_start;
+	ER += self->row_start;
+
+	uint8_t bufx[4] = {	(SC >> 8), (SC & 0xFF),	(EC >> 8), (EC & 0xFF)};
+	uint8_t bufy[4] = {	(SR >> 8), (SR & 0xFF), (ER >> 8), (ER & 0xFF)};
+	//uint8_t bufz[1] = { 0x00 };
+	
+	write_spi(self, LCD_CMD_CASET, bufx, 4); //Write CASET
+	write_spi(self, LCD_CMD_RASET, bufy, 4); //Write RASET
+	//write_spi(self, LCD_CMD_RAMWR, bufz, 0); //Write empty in case no write is done just after
+}
+
+
+static void set_rotation(amoled_AMOLED_obj_t *self, uint8_t rotation) {
+
+	// WRITE MADCTL VALUES
+    self->madctl_val &= 0x1F; // keep ML, BGR, MH, RSMX and RSMY, but reset MY,MX, MV
+    self->madctl_val |= self->rotations[rotation].madctl;
+    write_spi(self, LCD_CMD_MADCTL, (uint8_t[]) { self->madctl_val }, 1);
+
+    self->width = self->rotations[rotation].width;
+    self->height = self->rotations[rotation].height;
+	self->col_start = self->rotations[rotation].colstart;
+	self->row_start = self->rotations[rotation].rowstart;
+
+	set_area(self, 0, 0, self->width - 1, self->height - 1);
+}
+
 /*----------------------------------------------------------------------------------------------------
 Below are initialization related functions.
 -----------------------------------------------------------------------------------------------------*/
@@ -201,66 +230,67 @@ static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_reset_obj, amoled_AMOLED_reset);
 static mp_obj_t amoled_AMOLED_init(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
-	//Setup the chip parameter
+	//Setup Common
+	write_spi(self, LCD_CMD_SLPOUT, NULL, 0);  // SLEEP OUT
+	mp_hal_delay_ms(120);
+	
+	//Setup Specific
 	switch (self->type) {
-        case 0:	//RM67162 
-			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x05}, 1);  				// 0x05 SWITCH TO MANUFACTURING PAGE 4 COMMAND
-			write_spi(self, LCD_FAC_OVSSCONTROL, (uint8_t[]) {0x05}, 1);				// OVSS control set elvss -3.95v
-			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x01}, 1);					// 0x05 SWITCH TO MANUFACTURING PAGE 1 COMMAND
-			write_spi(self, LCD_FAC_OVSSVOLTAGE, (uint8_t[]) {0x25}, 1);				// SET OVSS voltage level.= -4.0V
-			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x00}, 1);  				// 0x00 SWITCH TO USER COMMAND
-			write_spi(self, LCD_CMD_COLMOD, (uint8_t[]) { self->colmod_cal }, 1);		// Interface Pixel Format 0x75 16bpp x76 18bpp 0x77 24bpp
-			write_spi(self, LCD_CMD_SETTSCANL, (uint8_t[]) {0x00, 0x80}, 2);  			// SET TEAR SCANLINE TO N = 0x0080 = 128
-			write_spi(self, LCD_CMD_TEON, (uint8_t[]) {0x00}, 1);  						// TEAR ON
-			//write_spi(self, LCD_CMD_WRDISBV, (uint8_t[]) {0x00}, 1); 					// WRITE BRIGHTNESS MIN VALUE 0x00
-			write_spi(self, LCD_CMD_SLPOUT, NULL, 0);     								// SLEEP OUT
-			mp_hal_delay_ms(120); 
-			write_spi(self, LCD_CMD_MADCTL, (uint8_t[]) { self->madctl_val,}, 1);		// WRITE MADCTL VALUES
-			write_spi(self, LCD_CMD_DISPON, NULL, 0);									// DISPLAY ON
-			write_spi(self, LCD_CMD_WRDISBV, (uint8_t[]) {0xFF}, 1);					// WRITE MAX BRIGHTNESS VALUE 0xFF 
+        case 0:	//RM67162
+			//Hardware setup
+			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x05}, 1);      // 0x05 SWITCH TO MANUFACTURING PAGE 4 COMMAND
+			write_spi(self, LCD_FAC_OVSSCONTROL, (uint8_t[]) {0x05}, 1);     // OVSS control set elvss -3.95v
+			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x01}, 1);      // 0x05 SWITCH TO MANUFACTURING PAGE 1 COMMAND
+			write_spi(self, LCD_FAC_OVSSVOLTAGE, (uint8_t[]) {0x25}, 1);     // SET OVSS voltage level.= -4.0V
+			//Back to Normal setup
+			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x00}, 1);      // 0x00 SWITCH TO USER COMMAND
+			//Add SETSPIMODE ? SETDISPMODE ?
+			write_spi(self, LCD_CMD_SETTSCANL, (uint8_t[]) {0x02, 0x58}, 2); // SET TEAR SCANLINE TO N = 0x0258 = 600
         break;
         case 1: //RM690B0
-			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x20}, 1);  				// 0x20 SWITCH TO MANUFACTURING PANEL COMMAND
-			write_spi(self, LCD_FAC_MIPI,(uint8_t[]) {0x0A}, 1);						// MIPI OFF
-			write_spi(self, LCD_FAC_SPI,(uint8_t[]) {0x80}, 1);							// SPI Write ram
-			write_spi(self, LCD_FAC_SWIRE1,(uint8_t[]) {0x51}, 1);						// ! 230918:SWIRE FOR BV6804
-			write_spi(self, LCD_FAC_SWIRE2,(uint8_t[]) {0x2E}, 1);						// ! 230918:SWIRE FOR BV6804
-			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x00}, 1);  				// 0x00 SWITCH TO USER COMMAND
-			write_spi(self, LCD_CMD_CASET, (uint8_t[]) {0x00, 0x10, 0x01, 0xD1}, 4);  	// SET COLUMN START ADRESSE SC = 0x0010 = 16 and EC = 0x01D1 = 465 (450 columns but an 16 offset)
-			write_spi(self, LCD_CMD_RASET, (uint8_t[]) {0x00, 0x00, 0x02, 0x57}, 4);	// SET ROW START ADRESS SP = 0 and EP = 0x256 = 599 (600 lines)
-			write_spi(self, LCD_CMD_COLMOD, (uint8_t[]) { self->colmod_cal }, 1);		// Interface Pixel Format 0x75 16bpp x76 18bpp 0x77 24bpp 
-			write_spi(self, LCD_CMD_SETDISPMODE, (uint8_t[]) {0x00}, 1); 				// Set DSI Mode to 0x00 = Internal Timmings
-			//	write_spi(self, LCD_CMD_SETSPIMODE, (uint8_t[]) {0xA1}, 1); 			// 0xA1 = 1010 0001, first bit = SPI interface write RAM enable
-			write_spi(self, LCD_CMD_SETTSCANL, (uint8_t[]) {0x01, 0x66}, 2);  			// SET TEAR SCANLINE TO N = 0x166 = 358
-			write_spi(self, LCD_CMD_TEON, (uint8_t[]) {0x00}, 1); 						// TE ON
-			//write_spi(self, LCD_CMD_WRDISBV, (uint8_t[]) {0xFF}, 1); 					// WRITE BRIGHTNESS VALUE 0x00
-			write_spi(self, LCD_CMD_SLPOUT, NULL, 1); 									// SLEEP OUT
-			mp_hal_delay_ms(120); 
-			write_spi(self, LCD_CMD_MADCTL, (uint8_t[]) { self->madctl_val }, 1);		// WRITE MADCTL VALUES
-			write_spi(self, LCD_CMD_DISPON, NULL, 1); 									// DISPLAY ON
-			write_spi(self, LCD_CMD_WRDISBV, (uint8_t[]) {0xFF}, 1); 					// WRITE MAX BRIGHTNESS VALUE 0xFF   
+			//Hardware setup
+			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x20}, 1);      // 0x20 SWITCH TO MANUFACTURING PANEL COMMAND
+			write_spi(self, LCD_FAC_MIPI,(uint8_t[]) {0x0A}, 1);             // MIPI OFF
+			write_spi(self, LCD_FAC_SPI,(uint8_t[]) {0x80}, 1);              // SPI Write ram
+			write_spi(self, LCD_FAC_SWIRE1,(uint8_t[]) {0x51}, 1);           // ! 230918:SWIRE FOR BV6804
+			write_spi(self, LCD_FAC_SWIRE2,(uint8_t[]) {0x2E}, 1);           // ! 230918:SWIRE FOR BV6804
+			//Back to Normal setup
+			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x00}, 1);      // 0x00 SWITCH TO USER COMMAND
+			//write_spi(self, LCD_CMD_SETSPIMODE, (uint8_t[]) {0xA1}, 1);    // 0xA1 = 1010 0001, first bit = SPI interface write RAM enable
+			write_spi(self, LCD_CMD_SETDISPMODE, (uint8_t[]) {0x00}, 1);     // Set DSI Mode to 0x00 = Internal Timmings
+			mp_hal_delay_ms(10);
+			write_spi(self, LCD_CMD_SETTSCANL, (uint8_t[]) {0x02, 0x18}, 2); // SET TEAR SCANLINE TO N = 0x218 = 536
 		 break;
 		 case 2: //SH8601
-			write_spi(self, LCD_CMD_SLPOUT, NULL, 0);									// SLEEP OUT
-			mp_hal_delay_ms(120);
-			write_spi(self, LCD_CMD_SETTSCANL, (uint8_t[]) {0x01, 0x2C}, 2);			// SET TEAR SCANLINE TO N = 0x012C = 300
-			write_spi(self, LCD_CMD_COLMOD, (uint8_t[]) { self->colmod_cal }, 1);		// Interface Pixel Format 0x55 16bpp x66 18bpp 0x77 24bpp
-			write_spi(self, LCD_CMD_MADCTL, (uint8_t[]) { self->madctl_val,}, 1);		// WRITE MADCTL VALUES
-			write_spi(self, LCD_CMD_TEON, (uint8_t[]) {0x00}, 1);						// TEAR ON
-			write_spi(self, LCD_CMD_WRCTRLD1, (uint8_t[]) {0x20}, 1);					// DISPLAY ON
+			//Hardware setup
+			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x20}, 1);      //Switch to Cde HBM mode
+			write_spi(self, 0x63, (uint8_t[]) {0xFF}, 1);                    // ? Write brightness HBM
+			write_spi(self, 0x26, (uint8_t[]) {0x0A}, 1);                    // ?
+			write_spi(self, 0x24, (uint8_t[]) {0x80}, 1);                    // ? 
+			//Back to Normal setup
+			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x20}, 1);      //Turn back to Cde monde		
+			write_spi(self, LCD_CMD_SETSPIMODE, (uint8_t[]) { 0x80 }, 1);    // QSPI MODE
+			write_spi(self, LCD_CMD_SETDISPMODE, (uint8_t[]) { 0x00 }, 1);   // DSPI MODE OFF
 			mp_hal_delay_ms(10);
-			write_spi(self, LCD_CMD_CASET, (uint8_t[]) {0x00, 0x00, 0x01, 0x6F}, 4);  	// SET COLUMN START ADRESSE SC = 0x0000 = 0 and EC = 0x016F = 367
-			write_spi(self, LCD_CMD_RASET, (uint8_t[]) {0x00, 0x00, 0x01, 0xBF}, 4);	// SET ROW START ADRESS SP = 0x0000 = 0 and EP = 0x01BF = 447
-			write_spi(self, LCD_CMD_WRDISBV, (uint8_t[]) {0x00}, 1);					// WRITE BRIGHTNESS MIN VALUE 0x00
-			mp_hal_delay_ms(10);
-			write_spi(self, LCD_CMD_DISPON, NULL, 0);									// DISPLAY ON
-			mp_hal_delay_ms(10);
-			write_spi(self, LCD_CMD_WRDISBV, (uint8_t[]) {0xFF}, 1);					// WRITE BRIGHTNESS MAX VALUE 0xFF		
+			write_spi(self, LCD_CMD_WRCTRLD1, (uint8_t[]) {0x20}, 1);        // Set Brightness control ON to Display 1
+			write_spi(self, LCD_CMD_SETTSCANL, (uint8_t[]) {0x01, 0xC0}, 2); // SET TEAR SCANLINE TO N = 0x01C0 = 448
 		break;
 	}
+		
+	//Setup Common Final
 	
-	//Fill display with framebuffer
-	write_color(self, self->frame_buffer, self->width * self->height * self->Bpp);
+	//Finish and Enlight display
+	write_spi(self, LCD_CMD_COLMOD, (uint8_t[]) { self->colmod_cal }, 1);    // Interface Pixel Format 0x55 16bpp x66 18bpp 0x77 24bpp
+	write_spi(self, LCD_CMD_WRDISBV, (uint8_t[]) {0x00}, 1);                 // WRITE BRIGHTNESS MIN VALUE 0x00
+	write_spi(self, LCD_CMD_TEON, (uint8_t[]) {0x00}, 1);                    // TEAR OFF
+	write_spi(self, LCD_CMD_DISPON, NULL, 0);                                // DISPLAY ON
+	mp_hal_delay_ms(10);
+	
+	//Fill display with the framebuffer previously initialized
+	write_color(self, self->fram_buf, self->width * self->height * self->Bpp);
+	
+	//Finillay set brighness	
+	write_spi(self, LCD_CMD_WRDISBV, (uint8_t[]) {0xFF}, 1);                // WRITE BRIGHTNESS MAX VALUE 0xFF
 	
     return mp_const_none;
 }
@@ -276,16 +306,20 @@ mp_obj_t amoled_AMOLED_make_new(const mp_obj_type_t *type, size_t n_args, size_t
         ARG_reset_level,
         ARG_color_space,
         ARG_bpp,
-        ARG_auto_refresh
+		ARG_rotation,
+        ARG_auto_refresh,
+		ARG_bus_methode,   //FOR DEVELOPPEMENT PURPOSE
     };
     static const mp_arg_t allowed_args[] = {
-        { MP_QSTR_bus,               MP_ARG_OBJ | MP_ARG_REQUIRED, {.u_obj = MP_OBJ_NULL}     },
-	    { MP_QSTR_type,              MP_ARG_INT | MP_ARG_KW_ONLY,  {.u_int = 1}    			  },
-        { MP_QSTR_reset,             MP_ARG_OBJ | MP_ARG_KW_ONLY,  {.u_obj = MP_OBJ_NULL}     },
-        { MP_QSTR_reset_level,       MP_ARG_BOOL | MP_ARG_KW_ONLY, {.u_bool = false}          },
-        { MP_QSTR_color_space,       MP_ARG_INT | MP_ARG_KW_ONLY,  {.u_int = COLOR_SPACE_RGB} },
-        { MP_QSTR_bpp,               MP_ARG_INT | MP_ARG_KW_ONLY,  {.u_int = 16}              },
-		{ MP_QSTR_auto_refresh,		 MP_ARG_INT | MP_ARG_KW_ONLY,  {.u_bool = true}          },
+        { MP_QSTR_bus,              MP_ARG_OBJ | MP_ARG_REQUIRED, {.u_obj = MP_OBJ_NULL}     },
+	    { MP_QSTR_type,             MP_ARG_INT | MP_ARG_KW_ONLY,  {.u_int = 1}    			 },
+        { MP_QSTR_reset,            MP_ARG_OBJ | MP_ARG_KW_ONLY,  {.u_obj = MP_OBJ_NULL}     },
+        { MP_QSTR_reset_level,      MP_ARG_BOOL | MP_ARG_KW_ONLY, {.u_bool = false}          },
+        { MP_QSTR_color_space,      MP_ARG_INT | MP_ARG_KW_ONLY,  {.u_int = COLOR_SPACE_RGB} },
+        { MP_QSTR_bpp,              MP_ARG_INT | MP_ARG_KW_ONLY,  {.u_int = 16}              },
+		{ MP_QSTR_rotation,         MP_ARG_INT | MP_ARG_KW_ONLY,  {.u_int = 0}               },
+		{ MP_QSTR_auto_refresh,		MP_ARG_INT | MP_ARG_KW_ONLY,  {.u_bool = true}           },
+		{ MP_QSTR_bus_methode,      MP_ARG_INT | MP_ARG_KW_ONLY,  {.u_int = 0}               }, //FOR DEVELOPPEMENT PURPOSE
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all_kw_array(
@@ -311,26 +345,25 @@ mp_obj_t amoled_AMOLED_make_new(const mp_obj_type_t *type, size_t n_args, size_t
 	//Display type 0 = TDisplay S3 RM61672 / 1 = T4-S3 RM690B0 / 2 = WAVESHARE SH8601
 	self->type = args[ARG_type].u_int;
 
-    //self->max_width_value etc will be initialized in the rotation later.
-    //self->width = ((amoled_qspi_bus_obj_t *)self->bus_obj)->width;
-    //self->height = ((amoled_qspi_bus_obj_t *)self->bus_obj)->height;
-  
 	//Get other arguments
 	self->auto_refresh = args[ARG_auto_refresh].u_bool;
-    self->reset       = args[ARG_reset].u_obj;
-    self->reset_level = args[ARG_reset_level].u_bool;
-    self->color_space = args[ARG_color_space].u_int;
-    self->bpp         = args[ARG_bpp].u_int;
-	self->Bpp		  = (self->bpp + 6) >> 3;  // 16 : 2 / 18 : 3 / 24 : 3
+    self->reset        = args[ARG_reset].u_obj;
+    self->reset_level  = args[ARG_reset_level].u_bool;
+    self->color_space  = args[ARG_color_space].u_int;
+    self->bpp          = args[ARG_bpp].u_int;
+	self->Bpp		   = (self->bpp + 6) >> 3;  // 16 : 2 / 18 : 3 / 24 : 3
+	self->rotation     = args[ARG_rotation].u_int;
+	self->madctl_val   = 0;
+	self->bus_methode  = args[ARG_bus_methode].u_int;   //FOR DEVELOPPEMENT PURPOSE
 	
 	// set RGB or BGR
     switch (self->color_space) {
         case COLOR_SPACE_RGB:
-            self->madctl_val &= ~LCD_CMD_BGR_BIT;  //Set Color bit to 0
+            self->madctl_val &= ~MADCTL_BGR_BIT;  //Set Color bit to 0
         break;
 
         case COLOR_SPACE_BGR:
-            self->madctl_val |= LCD_CMD_BGR_BIT; //Set Color bit to 1
+            self->madctl_val |= MADCTL_BGR_BIT; //Set Color bit to 1
         break;
 
         default:
@@ -338,40 +371,39 @@ mp_obj_t amoled_AMOLED_make_new(const mp_obj_type_t *type, size_t n_args, size_t
         break;
     }
 
-	// set BPP
+	// Select COLMOD calibration and Filter depending on bpp
+	uint8_t colmod_cal = 0x0;
+	uint8_t colmod_fil = 0x0;
+	
     switch (self->bpp) {
         case 16:
-            self->colmod_cal = COLMOD_CAL_16;
+            colmod_cal = COLMOD_CAL_16;
+			colmod_fil = COLMOD_FIL_16;
 			//Get bpp filter and switches
-			self->bpp_process.fltr_col_rd = BPP_PROCESS_GEN[0].fltr_col_rd;
-			self->bpp_process.bitsw_col_rd = BPP_PROCESS_GEN[0].bitsw_col_rd;
-			self->bpp_process.fltr_col_gr = BPP_PROCESS_GEN[0].fltr_col_gr;
-			self->bpp_process.bitsw_col_gr = BPP_PROCESS_GEN[0].bitsw_col_gr;
-			self->bpp_process.fltr_col_bl = BPP_PROCESS_GEN[0].fltr_col_bl;
         break;
 
         case 18:
-            self->colmod_cal = COLMOD_CAL_18;
-			self->bpp_process.fltr_col_rd = BPP_PROCESS_GEN[1].fltr_col_rd;
-			self->bpp_process.bitsw_col_rd = BPP_PROCESS_GEN[1].bitsw_col_rd;
-			self->bpp_process.fltr_col_gr = BPP_PROCESS_GEN[1].fltr_col_gr;
-			self->bpp_process.bitsw_col_gr = BPP_PROCESS_GEN[1].bitsw_col_gr;
-			self->bpp_process.fltr_col_bl = BPP_PROCESS_GEN[1].fltr_col_bl;
+            colmod_cal = COLMOD_CAL_18;
+			colmod_fil = COLMOD_FIL_18;
         break;
 
         case 24:
-            self->colmod_cal = COLMOD_CAL_24;
-			self->bpp_process.fltr_col_rd = BPP_PROCESS_GEN[2].fltr_col_rd;
-			self->bpp_process.bitsw_col_rd = BPP_PROCESS_GEN[2].bitsw_col_rd;
-			self->bpp_process.fltr_col_gr = BPP_PROCESS_GEN[2].fltr_col_gr;
-			self->bpp_process.bitsw_col_gr = BPP_PROCESS_GEN[2].bitsw_col_gr;
-			self->bpp_process.fltr_col_bl = BPP_PROCESS_GEN[2].fltr_col_bl;
+			colmod_cal = COLMOD_CAL_24;
+			colmod_fil = COLMOD_FIL_24;
         break;
 
         default:
             mp_raise_ValueError(MP_ERROR_TEXT("unsupported pixel width"));
         break;
     }
+	
+	// And apply them
+	self->colmod_cal = colmod_cal;
+	self->bpp_process.fltr_col_rd = 	BPP_PROCESS_GEN[colmod_fil].fltr_col_rd;
+	self->bpp_process.bitsw_col_rd = 	BPP_PROCESS_GEN[colmod_fil].bitsw_col_rd;
+	self->bpp_process.fltr_col_gr = 	BPP_PROCESS_GEN[colmod_fil].fltr_col_gr;
+	self->bpp_process.bitsw_col_gr = 	BPP_PROCESS_GEN[colmod_fil].bitsw_col_gr;
+	self->bpp_process.fltr_col_bl = 	BPP_PROCESS_GEN[colmod_fil].fltr_col_bl;
 
 	//Get rotation infos depending of display type
     bzero(&self->rotations, sizeof(self->rotations));
@@ -389,28 +421,21 @@ mp_obj_t amoled_AMOLED_make_new(const mp_obj_type_t *type, size_t n_args, size_t
             mp_raise_ValueError(MP_ERROR_TEXT("Unsupported display type"));
         break;
 	}
+
+	 //Reset the chip
+	amoled_AMOLED_reset(self);
 	
-	//Set default rotation, width, height, aso.
-	self->rotation = 0;
-    self->madctl_val &= 0x1F; // Set MY,MX, MV to 0 but keep ML, BGR, MH, RSMX and RSMY
-    self->madctl_val |= self->rotations[self->rotation].madctl;
-	self->width = self->rotations[self->rotation].width;
-    self->max_width_value = self->width - 1;
-    self->height = self->rotations[self->rotation].height;
-    self->max_height_value = self->height - 1;
-    self->x_gap = self->rotations[self->rotation].colstart;
-    self->y_gap = self->rotations[self->rotation].rowstart;
+	//Setup display rotation and get display parameters
+	set_rotation(self, self->rotation);
 	
-	//Allocate Frame Buffer
-    self->frame_buffer = heap_caps_calloc(self->width * self->height, self->Bpp, MALLOC_CAP_8BIT); 
-    if (self->frame_buffer == NULL) {
+	//Allocate a corresponding frame buffer
+    self->fram_buf = heap_caps_aligned_calloc(RAM_ALIGNMENT, self->width * self->height, self->Bpp, MALLOC_CAP_8BIT |MALLOC_CAP_SPIRAM); 
+	
+    if (self->fram_buf == NULL) {
         mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Failed to allocate Frame Buffer."));
     }
 
-    // reset
-	amoled_AMOLED_reset(self);
-	
-	//Finally initializes display
+	//Finally initialize the display
 	amoled_AMOLED_init(self);
 	
     return MP_OBJ_FROM_PTR(self);
@@ -423,7 +448,8 @@ static mp_obj_t amoled_AMOLED_deinit(mp_obj_t self_in) {
         self->lcd_panel_p->deinit(self->bus_obj);
     }
 
-    heap_caps_free(self->frame_buffer);
+    heap_caps_free((void*)self->fram_buf);
+	self->fram_buf = NULL;
 
     //m_del_obj(amoled_AMOLED_obj_t, self); 
     return mp_const_none;
@@ -436,7 +462,9 @@ static mp_obj_t amoled_TTF_deinit(mp_obj_t self_in) {
     SFT *self = (SFT *)MP_OBJ_TO_PTR(self_in);
 
     heap_caps_free((void *)self->font->memory);
+	self->font->memory = NULL;
 	heap_caps_free((void *)self->font);
+	self->font = NULL;
 
     //m_del_obj(amoled_TTF_obj_t, self); 
     return mp_const_none;
@@ -480,7 +508,6 @@ static void amoled_TTF_print(const mp_print_t *print, mp_obj_t self_in, mp_print
     );
 }
 
-
 static mp_obj_t amoled_AMOLED_version() {   
     return mp_obj_new_str(AMOLED_DRIVER_VERSION, 10);
 }
@@ -509,71 +536,121 @@ static mp_obj_t amoled_AMOLED_colorRGB(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_colorRGB_obj, 4, 4, amoled_AMOLED_colorRGB);
 
 
-static void set_area(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
-    if ((x0 <= x1) & (x1 <= self->max_width_value) & (y0 <= y1) & (y1 <= self->max_height_value)) {
-
-		/* As RM69090 driver need offset (see ORIENTATIONS_GENERAL) then the memory area needs to follow offsets*/
-		x0 += self->x_gap;
-		y0 += self->y_gap;
-		x1 += self->x_gap;
-		y1 += self->y_gap;
-
-		uint8_t bufx[4] = {
-			((x0 >> 8) & 0xFF),	// SC9 and SC8 are > 8 bits 
-			(x0 & 0xFF),		// SC7 to SC0 are < 8 bits
-			((x1 >> 8) & 0xFF),	// EC9 and EC8
-			(x1 & 0xFF)};		// and so
-		uint8_t bufy[4] = {
-			((y0 >> 8) & 0xFF),	// SP9 and SP8...
-			(y0 & 0xFF),
-			((y1 >> 8) & 0xFF),
-			(y1 & 0xFF)};
-		uint8_t bufz[1] = { 0x00 };
-	
-		write_spi(self, LCD_CMD_CASET, bufx, 4);
-		write_spi(self, LCD_CMD_RASET, bufy, 4);
-		write_spi(self, LCD_CMD_RAMWR, bufz, 0);  /* strict copy of Lilygo AMOLED */
-	}
-}
-
 //This function send a part of the frame_buffer to the display memory
 static void refresh_display(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
-	
-	// The SC[9:0] must be divisible by 2 (EVEN)
-	uint16_t SC = x & 0xFE; 
-	uint16_t SR = y & 0xFE;
-	// EC[9:0]-SC[9:0]+1 must can be divisible by 2 (EVEN), As EC is EVEN SC has to be ODD
-	uint16_t EC = (x+w-1) | 0x01;
-	uint16_t ER = (y+h-1) | 0x01;
-	
-	size_t p_buf_idx;
-	size_t buf_idx;
-	
+
 	if (self->auto_refresh) {
-
-		uint16_t w1 = EC - SC + 1 ; // Corrected width
-		uint16_t h1 = ER - SR + 1;
-		uint32_t partial_frame_buffer_size = w1 * h1;
 		
-		self->partial_frame_buffer = heap_caps_calloc(w1 * h1, self->Bpp, MALLOC_CAP_8BIT);
+		uint8_t  BPP=self->Bpp;
+		uint16_t WIDTH=self->width;
+		
+		// The SC[15:0] and SR[15:0] must be divisible by 2 (SC or SR Even)
+		uint16_t SC = (x >> 1) << 1;
+		uint16_t SR = (y >> 1) << 1;
 
-		//Copy frame_buffer to partial_frame_buffer
-		p_buf_idx = 0;
-		for (uint16_t line = 0; line < h1; line++) {
-			buf_idx = ((SR + line) * self->width) + SC;
-			memcpy(&self->partial_frame_buffer[p_buf_idx], &self->frame_buffer[buf_idx], self->Bpp * w1);
-			p_buf_idx += w1;
+		//EC[15:0]-SC[15:0]+1 must be divisible by 2 (so EC must be Odd)
+		uint16_t EC = (((x+w-1) >> 1) << 1 ) + 1;
+		uint16_t ER = (((y+h-1) >> 1) << 1 ) + 1;
+
+		//calculate real width
+		uint16_t w1 = EC - SC + 1;
+		uint16_t h1 = ER - SR + 1;
+		
+		uint32_t temp_buf_size = 0;
+		uint32_t temp_buf_write_size = 0;
+		
+		if(self->bus_methode == 0) {
+			
+			//Simpliest version direct writing (write to display every 2 lines)
+			
+			temp_buf_size = 2 * w1;            //2 lines of given width
+			uint16_t temp_buf[temp_buf_size];  //Allocate an array
+			size_t  fram_buf_idx = 0;
+			size_t  temp_buf_idx = 0;
+			temp_buf_write_size = temp_buf_size*BPP;
+			bool b = false;
+			
+			
+			for(uint16_t line = SR; line <= ER; line++) {
+				fram_buf_idx = line * WIDTH + SC;
+				for(uint16_t col = SC; col <= EC; col++) {
+					temp_buf[temp_buf_idx]=self->fram_buf[fram_buf_idx];
+					fram_buf_idx++;
+					temp_buf_idx++;
+				}
+				if (b) { //One every two line we write to the display
+					set_area(self, SC, line-1, EC, line);
+					write_color(self, temp_buf, temp_buf_write_size);
+					temp_buf_idx = 0;
+					b = false;
+				} else {
+					b = true;
+				}
+			}
 		}
 		
-		//Set display areas and write the partial frame buffer
-		set_area(self, SC, SR, EC, ER);
-		write_color(self, self->partial_frame_buffer, partial_frame_buffer_size * self->Bpp);
+		if(self->bus_methode == 1) {
+		
+			//Original code leading to artefact, I believe they where due to the allocation
+			//of buffer in SPIRAM that was conflicting with SPI transmission. The code was damn fast
+			//but artefacts where unacceptables... 
+			//Line with MALLOC_CAP_DMA doesn't change but crashes with too big buffer (lack of memoy)
+			//Alignment doesn't seem to change anything (maybe faster...writing but still artefacts)
+			
+			temp_buf_size = w1 * h1;   // full buffered
+			self->temp_buf = heap_caps_aligned_calloc(RAM_ALIGNMENT, temp_buf_size, BPP, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+			
+			//Copy frame_buffer to partial_frame_buffer
+			size_t  fram_buf_idx = 0;
+			size_t  temp_buf_idx = 0;
+			
+			temp_buf_write_size = w1*BPP;
 
-		//Than partial frame buffer  memory and return
-		heap_caps_free(self->partial_frame_buffer);
+			for (uint16_t line = SR; line <= ER; line++) {
+				fram_buf_idx = line * WIDTH + SC;
+				memcpy(&self->temp_buf[temp_buf_idx], &self->fram_buf[fram_buf_idx], temp_buf_write_size);
+				temp_buf_idx += w1;
+			}
+			
+			//Set display areas and write the partial frame buffer
+			set_area(self, SC, SR, EC, ER);
+			write_color(self, self->temp_buf, temp_buf_size * BPP);
+
+			//Than partial frame buffer  memory and return
+			heap_caps_free(self->temp_buf);
+		}
+		
+		if(self->bus_methode == 2) {
+		
+			//Hybrid method, copy to temp_fb without memcpy and write the full buffer to display
+			
+			temp_buf_size = w1 * h1;   // full buffered
+			self->temp_buf = heap_caps_aligned_calloc(RAM_ALIGNMENT, temp_buf_size, BPP, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+			
+			//Copy frame_buffer to partial_frame_buffer
+			size_t  fram_buf_idx = 0;
+			size_t  temp_buf_idx = 0;
+			
+			for(uint16_t line = SR; line <= ER; line++) {
+				fram_buf_idx = line * WIDTH + SC;
+				for(uint16_t col = SC; col <= EC; col++) {
+					self->temp_buf[temp_buf_idx]=self->fram_buf[fram_buf_idx];
+					fram_buf_idx++;
+					temp_buf_idx++;
+				}
+			}
+			
+			//Set display areas and write the partial frame buffer
+			set_area(self, SC, SR, EC, ER);
+			write_color(self, self->temp_buf, temp_buf_size * BPP);
+
+			//Than partial frame buffer  memory and return
+			heap_caps_free(self->temp_buf);
+		}
 	}
 }
 
+//Refresh whole (if no args) or a portion of the display (need x,y,w,h)
 static mp_obj_t amoled_AMOLED_refresh(size_t n_args, const mp_obj_t *args) {
 	amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
 	bool save_auto_refresh = self->auto_refresh;  //Save auto_refresh value
@@ -590,20 +667,21 @@ static mp_obj_t amoled_AMOLED_refresh(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_refresh_obj, 1, 1, amoled_AMOLED_refresh);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_refresh_obj, 1, 5, amoled_AMOLED_refresh);
+
 
 // This fill the frame buffer area, it has no dimension check, all should be done previously
 static void fill_frame_buffer(amoled_AMOLED_obj_t *self, uint16_t color, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
 	
-	size_t buf_idx;
+	size_t fram_buf_idx;
 	
-    if (self->frame_buffer == NULL) {
+    if (self->fram_buf == NULL) {
         mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("No framebuffer available."));
     }
 	
 	for (uint16_t line = 0; line < h; line++) {
-		buf_idx = ((y + line) * self->width) + x;
-		wmemset(&self->frame_buffer[buf_idx],color,w);  //wmenset is 2 bytes wide opération
+		fram_buf_idx = ((y + line) * self->width) + x;
+		wmemset(&self->fram_buf[fram_buf_idx],color, w);
 	}
 
     if ((!self->hold_display) & (self->auto_refresh)) {
@@ -618,11 +696,10 @@ Below are drawing functions : Pixel, lines, rectangles, filled circles, a.s.o
 
 
 static void pixel(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t color) {
-	
-	size_t buf_idx;
-	if ((x <= self->max_width_value) & (y <= self->max_height_value)) {
-		buf_idx = (y * self->width) + x;
-		self->frame_buffer[buf_idx] = color;
+	uint32_t fram_buf_idx;
+	if ((x < self->width) & (y < self->height)) {
+		fram_buf_idx = (y * self->width) + x;
+		self->fram_buf[fram_buf_idx] = color;
 		if (!self->hold_display & self->auto_refresh) {
 			refresh_display(self,x,y,1,1);
 		}
@@ -636,7 +713,6 @@ static mp_obj_t amoled_AMOLED_pixel(size_t n_args, const mp_obj_t *args) {
     uint16_t color = mp_obj_get_int(args[3]);
 
     pixel(self, x, y, color);
-
     return mp_const_none;
 }
 
@@ -647,8 +723,7 @@ static mp_obj_t amoled_AMOLED_fill(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint16_t color = mp_obj_get_int(args[1]);
 	
-    fill_frame_buffer(self, color, 0, 0, self->width , self->height);
-    
+    fill_frame_buffer(self, color, 0, 0, self->width, self->height);
     return mp_const_none;
 }
 
@@ -656,10 +731,9 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_obj, 2, 2, amoled_
 
 
 static void fast_hline(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t len, uint16_t color) {
-
-	if ((x <= self->max_width_value) & (y <= self->max_height_value) & (len >0)){
-		if (x + len > self->max_width_value) {
-			len = self->max_width_value - x;
+	if ((x < self->width) & (y < self->height) & (len >0)){
+		if (x + len > self->width) {
+			len = self->width - x;
 		} 
 		fill_frame_buffer(self, color, x, y, len, 1);
 	}
@@ -680,9 +754,9 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_hline_obj, 5, 5, amoled
 
 
 static void fast_vline(amoled_AMOLED_obj_t *self, uint16_t x, uint16_t y, uint16_t len, uint16_t color) {
-	if ((x <= self->max_width_value) & (y <= self->max_height_value) & (len >0)){
-		if (y + len > self->max_height_value) {
-			len = self->max_height_value - y;
+	if ((x < self->width) & (y < self->height) & (len >0)){
+		if (y + len > self->height) {
+			len = self->height - y;
 		} 
 		fill_frame_buffer(self, color, x, y, 1, len);
 	}
@@ -907,7 +981,8 @@ static void fill_trian(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint
 	dx02 = (float)(x2 - x0) / (float)(y2 - y0);
 	x02 = x0;
 	x01 = x0;
-	/*Check if triangle has flat bottom*/
+	//Process lower sub-triangle
+	//Check if triangle has flat bottom
 	if (y1 > y0) {
 		dx01 = (float)(x1 - x0) / (float)(y1 - y0);
 		for(uint16_t y=y0; y<=y1; y++) {
@@ -920,6 +995,7 @@ static void fill_trian(amoled_AMOLED_obj_t *self, uint16_t x0, uint16_t y0, uint
 			x01 += dx01;
 		}
 	}
+	//Process Upper sub-triangle
 	/*Check if triangle has flat top*/
 	if (y2 > y1) {
 		dx12 = (float)(x2 - x1) / (float)(y2 - y1);
@@ -958,54 +1034,56 @@ static void bubble_rect(amoled_AMOLED_obj_t *self, uint16_t xs, uint16_t ys, uin
     if (xs + w > self->width || ys + h > self->height) {
         return;
     }
-    int bubble_size;
-    if (w < h) {
-        bubble_size = w / 4;
-    } else {
-        bubble_size = h / 4;
-    }
-    
+
+    int bubble_size = min_val(w, h) / 4; 
     int xm = xs + bubble_size;
     int ym = ys + bubble_size;
-    int x = 0;
-    int y = bubble_size;
-    int p = 1 - bubble_size;
     
 	self->hold_display = true;
-    if ((w < (bubble_size * 2)) | (h < (bubble_size * 2))){
-        return;
-    } else {
-        fast_hline(self, xs + bubble_size - 1, ys, w - bubble_size * 2, color);
-        fast_hline(self, xs + bubble_size - 1, ys + h - 1, w - bubble_size * 2, color);
-        fast_vline(self, xs, ys + bubble_size - 1, h - bubble_size * 2, color);
-        fast_vline(self, xs + w -1, ys + bubble_size - 1, h - bubble_size * 2, color);
-    }
+	
+	//Process sides
 
-    while (x <= y){
-        // top left
-        pixel(self, xm - x, ym - y, color);
-        pixel(self, xm - y, ym - x, color);
-        
-        // top right
-        pixel(self, xm + w - bubble_size * 2 + x - 1, ym - y, color);
-        pixel(self, xm + w - bubble_size * 2 + y - 1, ym - x, color);
-        
-        // bottom left
-        pixel(self, xm - x, ym + h - bubble_size * 2 + y - 1, color);
-        pixel(self, xm - y, ym + h - bubble_size * 2 + x - 1, color);
-        
-        // bottom right
-        pixel(self, xm + w - bubble_size * 2 + x - 1, ym + h - bubble_size * 2 + y - 1, color);
-        pixel(self, xm + w - bubble_size * 2 + y - 1, ym + h - bubble_size * 2 + x - 1, color);
-        
-        if (p < 0) {
-            p += 2 * x + 3;
-        } else {
-            p += 2 * (x - y) + 5;
-            y -= 1;
-        }
-        x += 1;
-    }
+	fast_hline(self, xm, ys, w - bubble_size * 2, color);
+	fast_hline(self, xm, ys + h - 1, w - bubble_size * 2, color);
+	fast_vline(self, xs, ym , h - bubble_size * 2, color);
+    fast_vline(self, xs + w -1, ym , h - bubble_size * 2, color);
+
+	//Process angles
+	if(bubble_size > 1) {
+		/*int x = 0;
+		int y = bubble_size;
+		int p = 1 - bubble_size;  p is always <0 at beginning so avoid processins x=0*/
+		int x = 1;
+		int y = bubble_size;
+		int p = 6 - bubble_size;  // p=(1 - bubble_size) +2x + 3 = 6-bubble_size
+		
+		while (x <= y){
+			// top left
+			pixel(self, xm - x, ym - y, color);
+			pixel(self, xm - y, ym - x, color);
+			
+			// top right
+			pixel(self, xm + w - bubble_size * 2 + x - 1, ym - y, color);
+			pixel(self, xm + w - bubble_size * 2 + y - 1, ym - x, color);
+			
+			// bottom left
+			pixel(self, xm - x, ym + h - bubble_size * 2 + y - 1, color);
+			pixel(self, xm - y, ym + h - bubble_size * 2 + x - 1, color);
+			
+			// bottom right
+			pixel(self, xm + w - bubble_size * 2 + x - 1, ym + h - bubble_size * 2 + y - 1, color);
+			pixel(self, xm + w - bubble_size * 2 + y - 1, ym + h - bubble_size * 2 + x - 1, color);
+			
+			if (p < 0) {
+				p += 2 * x + 3;
+			} else {
+				p += 2 * (x - y) + 5;
+				y -= 1;
+			}
+			x += 1;
+		}
+	}
+	
 	self->hold_display = false;
 	refresh_display(self,xs,ys,w,h);
 }
@@ -1029,44 +1107,43 @@ static void fill_bubble_rect(amoled_AMOLED_obj_t *self, uint16_t xs, uint16_t ys
     if (xs + w > self->width || ys + h > self->height) {
         return;
     }
-    int bubble_size;
-    if (w < h) {
-        bubble_size = w / 4;
-    } else {
-        bubble_size = h / 4;
-    }
-    
+    int bubble_size = min_val(w, h) / 4; 
     int xm = xs + bubble_size;
     int ym = ys + bubble_size;
-    int x = 0;
-    int y = bubble_size;
-    int p = 1 - bubble_size;
     
 	self->hold_display = true;
 	
-    if ((w < (bubble_size * 2)) | (h < (bubble_size * 2))){
-        return;
-    } else {
-        fill_rect(self, xs, ys + bubble_size - 1, w, h - bubble_size * 2, color);
-    }
+	//Process internal rectangle
+    fill_rect(self, xs, ym, w, h - bubble_size * 2, color);
 
-    while (x <= y) {
-        // top left to right
-        fast_hline(self, xm - x, ym - y, w - bubble_size * 2 + x * 2 - 1, color);
-        fast_hline(self, xm - y, ym - x, w - bubble_size * 2 + y * 2 - 1, color);
-        
-        // bottom left to right
-        fast_hline(self, xm - x, ym + h - bubble_size * 2 + y - 1, w - bubble_size * 2 + x * 2 - 1, color);
-        fast_hline(self, xm - y, ym + h - bubble_size * 2 + x - 1, w - bubble_size * 2 + y * 2 - 1, color);
-        
-        if (p < 0) {
-            p += 2 * x + 3;
-        } else {
-            p += 2 * (x - y) + 5;
-            y -= 1;
-        } 
-        x += 1;
-    }
+	//Process upper and lower rounded rectangles
+	if(bubble_size >= 1) {
+		/*int x = 0;
+		int y = bubble_size;
+		int p = 1 - bubble_size;  p is always <0 at beginning so avoid processins x=0*/
+		int x = 1;
+		int y = bubble_size;
+		int p = 6 - bubble_size;  // p=(1 - bubble_size) +2x + 3 = 6-bubble_size
+
+
+		while (x <= y) {
+			// top left to right
+			fast_hline(self, xm - x, ym - y, w - bubble_size * 2 + x * 2 - 1, color);
+			fast_hline(self, xm - y, ym - x, w - bubble_size * 2 + y * 2 - 1, color);
+			
+			// bottom left to right
+			fast_hline(self, xm - x, ym + h - bubble_size * 2 + y - 1, w - bubble_size * 2 + x * 2 - 1, color);
+			fast_hline(self, xm - y, ym + h - bubble_size * 2 + x - 1, w - bubble_size * 2 + y * 2 - 1, color);
+			
+			if (p < 0) {
+				p += 2 * x + 3;
+			} else {
+				p += 2 * (x - y) + 5;
+				y -= 1;
+			} 
+			x += 1;
+		}
+	}
 	self->hold_display = false;
 	refresh_display(self,xs,ys,w,h);
 }
@@ -1087,29 +1164,37 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_bubble_rect_obj, 6
 
 
 static void circle(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_t r, uint16_t color) {
-    int x = 0;
-    int y = r;
-    int p = 1 - r;
-
+    
 	self->hold_display = true;
-    while (x <= y) {
-        pixel(self, xm + x, ym + y, color);
-        pixel(self, xm + x, ym - y, color);
-        pixel(self, xm - x, ym + y, color);
-        pixel(self, xm - x, ym - y, color);
-        pixel(self, xm + y, ym + x, color);
-        pixel(self, xm + y, ym - x, color);
-        pixel(self, xm - y, ym + x, color);
-        pixel(self, xm - y, ym - x, color);
+	
+	if (r == 0){
+		pixel(self, xm , ym , color);
+	}
+	else {
+		int x = 0;
+		int y = r;
+		int p = 1 - r;	
 
-        if (p < 0) {
-            p += 2 * x + 3;
-        } else {
-            p += 2 * (x - y) + 5;
-            y -= 1;
-        }
-        x += 1;
-    }
+		while (x <= y) {
+			pixel(self, xm + x, ym + y, color);
+			pixel(self, xm + x, ym - y, color);
+			pixel(self, xm - x, ym + y, color);
+			pixel(self, xm - x, ym - y, color);
+			pixel(self, xm + y, ym + x, color);
+			pixel(self, xm + y, ym - x, color);
+			pixel(self, xm - y, ym + x, color);
+			pixel(self, xm - y, ym - x, color);
+
+			if (p < 0) {
+				p += 2 * x + 3;
+			} else {
+				p += 2 * (x - y) + 5;
+				y -= 1;
+			}
+			x += 1;
+		}
+	}
+	
 	self->hold_display = false;
 	refresh_display(self,xm-r,ym-r,2*r+1,2*r+1);
 }
@@ -1128,25 +1213,33 @@ static mp_obj_t amoled_AMOLED_circle(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_circle_obj, 5, 5, amoled_AMOLED_circle);
 
 static void fill_circle(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_t r, uint16_t color) {
-    int x = 0;
-    int y = r;
-    int p = 1 - r;
 	
-	self->hold_display = true;
-    while (x <= y) {
-        fast_vline(self, xm + x, ym - y, 2 * y, color);
-        fast_vline(self, xm - x, ym - y, 2 * y, color);
-        fast_vline(self, xm + y, ym - x, 2 * x, color);
-        fast_vline(self, xm - y, ym - x, 2 * x, color);
+ 	self->hold_display = true;
+	
+	if (r == 0){
+		pixel(self, xm , ym , color);
+	}
+	else {
+		int x = 0;
+		int y = r;
+		int p = 1 - r;
+		
+		while (x <= y) {
+			fast_vline(self, xm + x, ym - y, 2 * y, color);
+			fast_vline(self, xm - x, ym - y, 2 * y, color);
+			fast_vline(self, xm + y, ym - x, 2 * x, color);
+			fast_vline(self, xm - y, ym - x, 2 * x, color);
 
-        if (p < 0) {
-            p += 2 * x + 3;
-        } else {
-            p += 2 * (x - y) + 5;
-            y -= 1;
-        }
-        x += 1;
-    }
+			if (p < 0) {
+				p += 2 * x + 3;
+			} else {
+				p += 2 * (x - y) + 5;
+				y -= 1;
+			}
+			x += 1;
+		}
+	}
+	
 	self->hold_display = false;
 	refresh_display(self,xm-r,ym-r,2*r+1,2*r+1);
 }
@@ -1166,13 +1259,6 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_fill_circle_obj, 5, 5, 
 
 
 static void ellipse(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_t rx, uint16_t ry, uint16_t color) {
-    int x = 0;
-    int y = ry;
-	
-	//let to check vs int
-    float d1 = (ry * ry) - (rx * rx * ry) + (0.25 * rx * rx);
-	float dx = 0;
-	float dy = 2 * rx * rx * y;
 
 	self->hold_display = true;
 
@@ -1186,6 +1272,15 @@ static void ellipse(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_
 		}
 	}
 	else {
+		
+		int x = 0;
+		int y = ry;
+	
+		//let to check vs int
+		float d1 = (ry * ry) - (rx * rx * ry) + (0.25 * rx * rx);
+		float dx = 0;
+		float dy = 2 * rx * rx * y;
+		
 		// Plotting points of region 1	
 		while (dx <= dy) {
 			pixel(self, xm + x, ym + y, color);
@@ -1251,14 +1346,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_ellipse_obj, 6, 6, amol
 
 
 static void fill_ellipse(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, uint16_t rx, uint16_t ry, uint16_t color) {
-    int x = 0;
-    int y = ry;
 	
-	//let to check vs int
-    float d1 = (ry * ry) - (rx * rx * ry) + (0.25 * rx * rx);
-	float dx = 0;
-	float dy = 2 * rx * rx * y;
-
 	self->hold_display = true;
 
 	//If ellipse is flat, général algorythm will fall into loop
@@ -1270,50 +1358,73 @@ static void fill_ellipse(amoled_AMOLED_obj_t *self, uint16_t xm, uint16_t ym, ui
 			fast_vline(self, xm, ym-rx, 2 * rx, color);
 		}
 	}
-	else {
-
-		// Plotting points of region 1	
-		while (dx <= dy) {
+	else {	
 			
-			fast_vline(self, xm + x, ym - y, 2 * y, color);
-			fast_vline(self, xm - x, ym - y, 2 * y, color);
+		int x = 0;
+		int y = ry;
 		
-			if (d1 < 0) {
-				x++;
-				dx = dx + (2 * ry * ry);
-				d1 = d1 + dx + (ry * ry);
-			} 
-			else {
-				x++;
-				y--;
-				dx = dx + (2 * ry * ry);
-				dy = dy - (2 * rx * rx);
-				d1 = d1 + dx - dy + (ry * ry);
+		//let to check vs int
+		float d1 = (ry * ry) - (rx * rx * ry) + (0.25 * rx * rx);
+		float dx = 0;
+		float dy = 2 * rx * rx * y;
+
+		self->hold_display = true;
+
+		//If ellipse is flat, général algorythm will fall into loop
+		if ((rx == 0)|(ry == 0)){
+			if (rx == 0) {
+				fast_hline(self, xm - ry, ym, 2 * ry, color);
+			}
+			if (ry == 0){
+				fast_vline(self, xm, ym-rx, 2 * rx, color);
 			}
 		}
+		else {
 
-		int d2 = ((ry * ry) * ((x + 0.5) * (x + 0.5))) + ((rx * rx) * ((y - 1) * (y - 1))) - (rx * rx * ry * ry);
+			// Plotting points of region 1	
+			while (dx <= dy) {
+				
+				fast_vline(self, xm + x, ym - y, 2 * y, color);
+				fast_vline(self, xm - x, ym - y, 2 * y, color);
+			
+				if (d1 < 0) {
+					x++;
+					dx = dx + (2 * ry * ry);
+					d1 = d1 + dx + (ry * ry);
+				} 
+				else {
+					x++;
+					y--;
+					dx = dx + (2 * ry * ry);
+					dy = dy - (2 * rx * rx);
+					d1 = d1 + dx - dy + (ry * ry);
+				}
+			}
 
-		// Plotting points of region 2
-		while (y >= 0) {
-			
-			fast_vline(self, xm + x, ym - y, 2 * y, color);
-			fast_vline(self, xm - x, ym - y, 2 * y, color);
-			
-			if (d2 > 0) {
-				y--;
-				dy = dy - (2 * rx * rx);
-				d2 = d2 + (rx * rx) - dy;
-			} 
-			else {
-				y--;
-				x++;
-				dx = dx + (2 * ry * ry);
-				dy = dy - (2 * rx * rx);
-				d2 = d2 + dx - dy + (rx * rx);
+			int d2 = ((ry * ry) * ((x + 0.5) * (x + 0.5))) + ((rx * rx) * ((y - 1) * (y - 1))) - (rx * rx * ry * ry);
+
+			// Plotting points of region 2
+			while (y >= 0) {
+				
+				fast_vline(self, xm + x, ym - y, 2 * y, color);
+				fast_vline(self, xm - x, ym - y, 2 * y, color);
+				
+				if (d2 > 0) {
+					y--;
+					dy = dy - (2 * rx * rx);
+					d2 = d2 + (rx * rx) - dy;
+				} 
+				else {
+					y--;
+					x++;
+					dx = dx + (2 * ry * ry);
+					dy = dy - (2 * rx * rx);
+					d2 = d2 + dx - dy + (rx * rx);
+				}
 			}
 		}
 	}
+	
 	self->hold_display = false;
 	refresh_display(self,xm-rx,ym-ry,2*rx+1,2*ry+1);
 }
@@ -1436,7 +1547,7 @@ static mp_obj_t amoled_AMOLED_polygon(size_t n_args, const mp_obj_t *args) {
             cy = mp_obj_get_int(args[7]);
         }
 
-        self->work = heap_caps_malloc(poly_len * sizeof(Point), MALLOC_CAP_8BIT);
+        self->work = (void *) heap_caps_aligned_calloc(RAM_ALIGNMENT, poly_len, sizeof(Point), MALLOC_CAP_8BIT);
         if (self->work) {
             Point *point = (Point *)self->work;
 
@@ -1622,7 +1733,7 @@ static mp_obj_t amoled_AMOLED_fill_polygon(size_t n_args, const mp_obj_t *args) 
             cy = mp_obj_get_int(args[7]);
         }
 
-        self->work = heap_caps_malloc(poly_len * sizeof(Point), MALLOC_CAP_8BIT);
+        self->work = (void *) heap_caps_aligned_calloc(RAM_ALIGNMENT, poly_len, sizeof(Point), MALLOC_CAP_8BIT);
         if (self->work) {
             Point *point = (Point *)self->work;
 
@@ -1702,22 +1813,22 @@ static mp_obj_t amoled_AMOLED_text(size_t n_args, const mp_obj_t *args) {
 	for (uint8_t i = 0; i < str_8_len; i++) {
 		chr = str_8[i];
         if (chr >= first && chr <= last) {	// if string character is in the font character range 
-			if (x + width > self->max_width_value) {
+			if (x + width >= self->width) {
 				return mp_const_none;  // return if char is away from dsplay
 			}
             uint16_t chr_idx = (chr - first) * (height * wide);	// chr_index is the charactere index in the font file 
-			size_t buf_idx;  //bud_index is the framebuffer index
+			size_t fram_buf_idx;  //bud_index is the framebuffer index
 			for (uint8_t line = 0; line < height; line++) {		// for every line of the font character
-				buf_idx = (y + line) * self->width + x;	// buf_idx is the frame buffer start index for each line
+				fram_buf_idx = (y + line) * self->width + x;	// buf_idx is the frame buffer start index for each line
 				for (uint8_t line_byte = 0; line_byte < wide; line_byte++) { 	//for wide bytes of every line 
                     uint8_t chr_data = font_data[chr_idx];					 	// get corresponding data
                     for (uint8_t bit = 8; bit; bit--) {						 	// for every bits of the font
 						if (chr_data >> (bit - 1) & 1) {	// 1 = Front color / 0 = back_color
-                            self->frame_buffer[buf_idx] = fg_color;	
+                            self->fram_buf[fram_buf_idx] = fg_color;	
                         } else {
-							if (bg_filled) { self->frame_buffer[buf_idx] = bg_color; }  //Fill background only if asked
+							if (bg_filled) { self->fram_buf[fram_buf_idx] = bg_color; }  //Fill background only if asked
                         }
-                        buf_idx++;	// next frame buffer index and proceed next font bit
+                        fram_buf_idx++;	// next frame buffer index and proceed next font bit
                     }
                     chr_idx++;	// next font line_byte
                 }																			
@@ -1789,6 +1900,8 @@ static mp_obj_t amoled_AMOLED_write(size_t n_args, const mp_obj_t *args) {
 	// if no Arg 6, we will not overwrite frame buffer	
 	bool bg_filled = (n_args > 6) ? true : false;
 	
+	uint8_t *bitmap_data = NULL;
+	
 	//Map font datas
     mp_obj_dict_t *dict = MP_OBJ_TO_PTR(font->globals);
     const uint8_t height = mp_obj_get_int(mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_HEIGHT)));  // height is the font height
@@ -1812,9 +1925,10 @@ static mp_obj_t amoled_AMOLED_write(size_t n_args, const mp_obj_t *args) {
     mp_obj_t map_obj = mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_MAP));
     GET_STR_DATA_LEN(map_obj, map_data, map_len);
 	
-	size_t buf_idx;
+	size_t fram_buf_idx;
 	mp_int_t x0 = x;
 	char chr;		// String char
+	uint32_t bs_bit = 0;
 
 	//Process every char
 	for (uint8_t i = 0; i < str_8_len; i++) {
@@ -1829,15 +1943,15 @@ static mp_obj_t amoled_AMOLED_write(size_t n_args, const mp_obj_t *args) {
             map_ch = utf8_get_char(map_s);
             map_s = utf8_next_char(map_s);
 
-			buf_idx = 0;  // Init buffer index
+			fram_buf_idx = 0;  // Init buffer index
 			
 			//If found get bit datas
             if (chr == map_ch) {
                 uint8_t width = widths_data[char_index];    //width is the character width
-				if (x + width > self->max_width_value) {
+				if (x + width >= self->width) {
 					return mp_const_none;  // return if char is away from dsplay
 				}
-                bs_bit = 0;   //bs_bit will point to the font character 1st bit; it can be offseted from 1 to 3 bits !
+                bs_bit = 0; //bs_bit will point to the font character 1st bit; it can be offseted from 1 to 3 bits !
                 switch (offset_width) {
                     case 1:
                         bs_bit = offsets_data[char_index * offset_width];
@@ -1857,15 +1971,15 @@ static mp_obj_t amoled_AMOLED_write(size_t n_args, const mp_obj_t *args) {
 
 				//Render to display		
                 for (uint16_t line = 0; line < height; line++) {  // for every line of char	
-					buf_idx = (y + line) * self->width + x;	// buf_idx is the frame buffer start index for each line
+					fram_buf_idx = (y + line) * self->width + x;	// buf_idx is the frame buffer start index for each line
                     for (uint16_t line_bits = 0; line_bits < width; line_bits++) { //for every bit of every line
 						if ((bitmap_data[bs_bit / 8] & 1 << (7 - (bs_bit % 8)))) { //Check if pixel bit if 1 or 0
-							self->frame_buffer[buf_idx] = fg_color;
+							self->fram_buf[fram_buf_idx] = fg_color;
 						} else {
-							if (bg_filled) { self->frame_buffer[buf_idx] = bg_color; }  //Fill background only if asked
+							if (bg_filled) { self->fram_buf[fram_buf_idx] = bg_color; }  //Fill background only if asked
 						}
 						bs_bit++;
-						buf_idx++;
+						fram_buf_idx++;
                     }
 				}			
                 x += width;
@@ -2166,7 +2280,7 @@ mp_obj_t amoled_TTF_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_
 	}
 
 	//Allocatate font memory buffer
-	self->font->memory = heap_caps_malloc(size + 1, MALLOC_CAP_8BIT);
+	self->font->memory = heap_caps_aligned_alloc(RAM_ALIGNMENT, size + 1, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
 	
 	//Check if memory allocation was OK
 	if(self->font->memory == NULL) {
@@ -2286,7 +2400,7 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 	SFT_Kerning kerning = { .xShift=0, .yShift=0,};
 	
 	uint16_t gl_idx;  	// index for rendered glyph
-	size_t buf_idx;    	// index for frame buffer
+	size_t fram_buf_idx;    	// index for frame buffer
 	uint8_t gl_data;   	// temporary glyph pixel value
 	//uint32_t chr;		// String char
 	uint8_t chr;
@@ -2336,17 +2450,17 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 		//Now put the Glyph to the display frame_buffer	
 		gl_idx = 0;  //Glyph pointer set to 0 at beginning
 		for (uint16_t y_gly = 0; y_gly < g_img.height; y_gly++) {		// for every line of the glyph
-			buf_idx = (y_pen + y_gly) * self->width + x_pen;			// buf_idx is the frame buffer start index for each line
+			fram_buf_idx = (y_pen + y_gly) * self->width + x_pen;			// fram_buf_idx is the frame buffer start index for each line
 			for (uint16_t x_gly = 0; x_gly < g_img.width; x_gly++) {	// for every cols of the glyph
 				gl_data = g_img.pixels[gl_idx];		                	// get glyph pixel value (1 Byte)
 	
 				switch (gl_data) {
 					case 255 : // If full 255 => Plain Fg color
-						self->frame_buffer[buf_idx] = fg_color;
+						self->fram_buf[fram_buf_idx] = fg_color;
 					break;
 
 					case 0 :  // If 0 => Bg color
-						if (bg_filled) { self->frame_buffer[buf_idx] = bg_color; }
+						if (bg_filled) { self->fram_buf[fram_buf_idx] = bg_color; }
 					break;
 
 					default:	//Otherwise, moderate color if aliasing activated
@@ -2354,10 +2468,10 @@ static mp_obj_t amoled_AMOLED_ttf_draw(size_t n_args, const mp_obj_t *args) {
 						mfg_color_gr = ((gl_data * fg_color_gr) >> 8) << bitsw_col_gr;
 						mfg_color_bl = (gl_data * fg_color_bl) >> 8;
 						mfg_color = ( mfg_color_rd | mfg_color_gr | mfg_color_bl);
-						self->frame_buffer[buf_idx] = (uint16_t) (mfg_color >> 8) | (mfg_color << 8); //Because of little indian
+						self->fram_buf[fram_buf_idx] = (uint16_t) (mfg_color >> 8) | (mfg_color << 8); //Because of little indian
 					break;
 				}
-				buf_idx++;    // Next framebuffer pixel
+				fram_buf_idx++;    // Next framebuffer pixel
 				gl_idx ++;	  // Next glyph pixel
 			}
 		}
@@ -2441,11 +2555,6 @@ static mp_obj_t amoled_AMOLED_bitmap(size_t n_args, const mp_obj_t *args) {
     int x_end   = mp_obj_get_int(args[3]);
     int y_end   = mp_obj_get_int(args[4]);
 
-    x_start += self->x_gap;
-    x_end += self->x_gap;
-    y_start += self->y_gap;
-    y_end += self->y_gap;
-
     mp_buffer_info_t bufinfo;
     mp_get_buffer_raise(args[5], &bufinfo, MP_BUFFER_READ);
     set_area(self, x_start, y_start, x_end, y_end);
@@ -2514,34 +2623,26 @@ static mp_obj_t amoled_AMOLED_jpg(size_t n_args, const mp_obj_t *args) {
 
     JRESULT res;	// Result code of TJpgDec API
     JDEC jdec;		// Decompression object
-    self->work = (void *)heap_caps_malloc(MAX_BUFFER, MALLOC_CAP_8BIT);	// Pointer to the work area
+    self->work = (void *)heap_caps_aligned_alloc(RAM_ALIGNMENT, MAX_BUFFER, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);	// Pointer to the work area
 	IODEV  devid;	// User defined device identifier
-    size_t bufsize;
+    size_t temp_buf_size;
 	
-	self->fp = mp_open(filename, "rb");
-	devid.fp = self->fp;
-	
+	devid.fp = mp_open(filename, "rb");
 	if (devid.fp) {
 		// Prepare to decompress
 		res = jd_prepare(&jdec, in_func, self->work, MAX_BUFFER, &devid);
 		if (res == JDR_OK) {
 			// Initialize output device
-			bufsize = 2 * jdec.width * jdec.height;
+			temp_buf_size = 2 * jdec.width * jdec.height;
 			outfunc = out_fast;
 			
-			if (self->buffer_size && (bufsize > self->buffer_size)) {
-				mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("buffer too small. %ld bytes required."), (long) bufsize);
-			}
+			self->temp_buf = heap_caps_aligned_alloc(RAM_ALIGNMENT, temp_buf_size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+			
+			if (!self->temp_buf)
+				mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("JPG error while allocating memory"));
 
-			if (self->buffer_size == 0) {
-				self->pixel_buffer = heap_caps_malloc(bufsize, MALLOC_CAP_8BIT);
-			}
-
-			if (!self->pixel_buffer)
-				mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("out of memory"));
-
-			devid.fbuf	= (uint8_t *) self->pixel_buffer;
-			//devid.fbuf	= (uint16_t *) self->pixel_buffer;
+			devid.fbuf	= (uint8_t *) self->temp_buf;
+			//devid.fbuf	= (uint16_t *) self->temp_buf;
 			devid.wfbuf = jdec.width;
 			devid.self	= self;
 			res			= jd_decomp(&jdec, outfunc, 0); // Start to decompress with 1/1 scaling
@@ -2549,30 +2650,30 @@ static mp_obj_t amoled_AMOLED_jpg(size_t n_args, const mp_obj_t *args) {
 			if (res == JDR_OK) {
 				
 				size_t jpg_idx=0;
-				size_t buf_idx=0;
+				size_t fram_buf_idx=0;
 				uint16_t color;
 				
 				//Copy decompressed JPG from DEVID to Frame Buffer
 				
 				for(uint16_t line=0; line < jdec.height; line++) {
-					buf_idx = (y + line)*self->width + x;
+					fram_buf_idx = (y + line)*self->width + x;
 					for(uint16_t col=0; col < jdec.width; col++) {
 						color = devid.fbuf[jpg_idx+1] << 8 | devid.fbuf[jpg_idx];
-						self->frame_buffer[buf_idx] = color;
-						buf_idx++;
+						self->fram_buf[fram_buf_idx] = color;
+						fram_buf_idx++;
 						jpg_idx += 2;
 					}
 				}
 			} else {
-				mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("JPG decompress failed."));
+				mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("JPG decompression error"));
 			}
-			if (self->buffer_size == 0) {
-				heap_caps_free(self->pixel_buffer); // Discard frame buffer
-				self->pixel_buffer = MP_OBJ_NULL;
-			}
-			devid.fbuf = MP_OBJ_NULL;
+			
+			heap_caps_free((void*)self->temp_buf); // Discard frame buffer
+			self->temp_buf = NULL;
+			devid.fbuf = NULL;
+			
 		} else {
-			mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("JPG prepare failed."));
+			mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("JPG preparation failed."));
 		}
 		mp_close(devid.fp);
 	}
@@ -2631,15 +2732,14 @@ static mp_obj_t amoled_AMOLED_jpg_decode(size_t n_args, const mp_obj_t *args) {
 			width  = mp_obj_get_int(args[4]);
 			height = mp_obj_get_int(args[5]);
 		}
-		self->work = (void *) heap_caps_malloc(MAX_BUFFER, MALLOC_CAP_8BIT); // Pointer to the work area
+		self->work = (void *) heap_caps_aligned_alloc(RAM_ALIGNMENT, MAX_BUFFER, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM); // Pointer to the work area
 
 		JRESULT res;   // Result code of TJpgDec API
 		JDEC	jdec;  // Decompression object
 		IODEV	devid; // User defined device identifier
-		size_t	bufsize = 0;
+		size_t	temp_buf_size = 0;
 
-		self->fp = mp_open(filename, "rb");
-		devid.fp = self->fp;
+		devid.fp = mp_open(filename, "rb");
 		if (devid.fp) {
 			// Prepare to decompress
 			res = jd_prepare(&jdec, in_func, self->work, MAX_BUFFER, &devid);
@@ -2656,15 +2756,15 @@ static mp_obj_t amoled_AMOLED_jpg_decode(size_t n_args, const mp_obj_t *args) {
 				devid.right	 = x + width - 1;
 				devid.bottom = y + height - 1;
 
-				bufsize			   = 2 * width * height;
-				self->pixel_buffer = heap_caps_malloc(bufsize, MALLOC_CAP_8BIT);
-				if (self->pixel_buffer) {
-					memset(self->pixel_buffer, 0xBEEF, bufsize);
+				temp_buf_size			   = 2 * width * height;
+				self->temp_buf = heap_caps_aligned_alloc(RAM_ALIGNMENT, temp_buf_size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+				if (self->temp_buf) {
+					memset(self->temp_buf, 0xBEEF, temp_buf_size);
 				} else {
 					mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("out of memory"));
 				}
 
-				devid.fbuf	= (uint8_t *) self->pixel_buffer;
+				devid.fbuf	= (uint8_t *) self->temp_buf;
 				devid.wfbuf = jdec.width;
 				devid.self	= self;
 				res			= jd_decomp(&jdec, out_crop, 0); // Start to decompress with 1/1 scaling
@@ -2680,7 +2780,7 @@ static mp_obj_t amoled_AMOLED_jpg_decode(size_t n_args, const mp_obj_t *args) {
 		heap_caps_free(self->work); // Discard work area
 
 		mp_obj_t result[3] = {
-			mp_obj_new_bytearray(bufsize, (mp_obj_t *) self->pixel_buffer),
+			mp_obj_new_bytearray(temp_buf_size, (mp_obj_t *) self->temp_buf),
 			mp_obj_new_int(width),
 			mp_obj_new_int(height)};
 
@@ -2703,14 +2803,14 @@ static mp_obj_t amoled_AMOLED_mirror(mp_obj_t self_in, mp_obj_t mirror_x_in, mp_
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
     if (mp_obj_is_true(mirror_x_in)) {
-        self->madctl_val |= LCD_CMD_MX_BIT;
+        self->madctl_val |= MADCTL_MX_BIT;
     } else {
-        self->madctl_val &= ~LCD_CMD_MX_BIT;
+        self->madctl_val &= ~MADCTL_MX_BIT;
     }
     if (mp_obj_is_true(mirror_y_in)) {
-        self->madctl_val |= LCD_CMD_MY_BIT;
+        self->madctl_val |= MADCTL_MY_BIT;
     } else {
-        self->madctl_val &= ~LCD_CMD_MY_BIT;
+        self->madctl_val &= ~MADCTL_MY_BIT;
     }
     write_spi(self, LCD_CMD_MADCTL, (uint8_t[]) { self->madctl_val }, 1);
     return mp_const_none;
@@ -2722,9 +2822,9 @@ static MP_DEFINE_CONST_FUN_OBJ_3(amoled_AMOLED_mirror_obj, amoled_AMOLED_mirror)
 static mp_obj_t amoled_AMOLED_swap_xy(mp_obj_t self_in, mp_obj_t swap_axes_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (mp_obj_is_true(swap_axes_in)) {
-        self->madctl_val |= LCD_CMD_MV_BIT;
+        self->madctl_val |= MADCTL_MV_BIT;
     } else {
-        self->madctl_val &= ~LCD_CMD_MV_BIT;
+        self->madctl_val &= ~MADCTL_MV_BIT;
     }
     write_spi(self, LCD_CMD_MADCTL, (uint8_t[]) { self->madctl_val }, 1);
     return mp_const_none;
@@ -2732,15 +2832,15 @@ static mp_obj_t amoled_AMOLED_swap_xy(mp_obj_t self_in, mp_obj_t swap_axes_in) {
 
 static MP_DEFINE_CONST_FUN_OBJ_2(amoled_AMOLED_swap_xy_obj, amoled_AMOLED_swap_xy);
 
-
+/*
 static mp_obj_t amoled_AMOLED_set_gap(mp_obj_t self_in, mp_obj_t x_gap_in, mp_obj_t y_gap_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    self->x_gap = mp_obj_get_int(x_gap_in);
-    self->y_gap = mp_obj_get_int(y_gap_in);
+    self->col_start = mp_obj_get_int(x_gap_in);
+    self->row_start = mp_obj_get_int(y_gap_in);
     return mp_const_none;
 }
 
-static MP_DEFINE_CONST_FUN_OBJ_3(amoled_AMOLED_set_gap_obj, amoled_AMOLED_set_gap);
+static MP_DEFINE_CONST_FUN_OBJ_3(amoled_AMOLED_set_gap_obj, amoled_AMOLED_set_gap);*/
 
 
 static mp_obj_t amoled_AMOLED_invert_color(mp_obj_t self_in, mp_obj_t invert_in) {
@@ -2825,20 +2925,8 @@ static mp_obj_t amoled_AMOLED_height(mp_obj_t self_in) {
 
 static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_height_obj, amoled_AMOLED_height);
 
-static void set_rotation(amoled_AMOLED_obj_t *self, uint8_t rotation) {
-    self->madctl_val &= 0x1F; // keep ML, BGR, MH, RSMX and RSMY, but reset MY,MX, MV
-    self->madctl_val |= self->rotations[rotation].madctl;
 
-    write_spi(self, LCD_CMD_MADCTL, (uint8_t[]) { self->madctl_val }, 1);
-
-    self->width = self->rotations[rotation].width;
-    self->max_width_value = self->width - 1;
-    self->height = self->rotations[rotation].height;
-    self->max_height_value = self->height - 1;
-    self->x_gap = self->rotations[rotation].colstart;
-    self->y_gap = self->rotations[rotation].rowstart;
-}
-
+//Setup display rotation, 3rd argument is optional and might be a tupple replacing default array
 static mp_obj_t amoled_AMOLED_rotation(size_t n_args, const mp_obj_t *args) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     self->rotation = mp_obj_get_int(args[1]) % 4;
@@ -2860,6 +2948,33 @@ static mp_obj_t amoled_AMOLED_rotation(size_t n_args, const mp_obj_t *args) {
 }
 
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_rotation_obj, 2, 3, amoled_AMOLED_rotation);
+
+
+static void set_tearing(amoled_AMOLED_obj_t *self, uint8_t te, uint16_t scanline) {
+
+	uint8_t bufte[1] = { te };
+	uint8_t bufsl[2] = { (scanline >> 8), (scanline & 0xFF) };
+	
+	write_spi(self, LCD_CMD_TEON, bufte, 1);
+	write_spi(self, LCD_CMD_SETTSCANL, bufsl, 2);
+
+}
+
+//Setup tearing(0/1, [scanline])
+static mp_obj_t amoled_AMOLED_tearing(size_t n_args, const mp_obj_t *args) {
+    amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    self->te = mp_obj_get_int(args[1]);
+    if (n_args > 2) {
+		self->scanline = mp_obj_get_int(args[2]);
+	} else {
+		self->scanline = self->height;
+	}
+    set_tearing(self, self->te, self->scanline);
+    return mp_const_none;
+}
+
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(amoled_AMOLED_tearing_obj, 2, 3, amoled_AMOLED_tearing);
+
 
 
 static mp_obj_t amoled_AMOLED_vscroll_area(size_t n_args, const mp_obj_t *args) {
@@ -2893,12 +3008,12 @@ static mp_obj_t amoled_AMOLED_vscroll_start(size_t n_args, const mp_obj_t *args)
 
     if (n_args > 2) {
         if (mp_obj_is_true(args[2])) {
-            self->madctl_val |= LCD_CMD_ML_BIT;
+            self->madctl_val |= MADCTL_ML_BIT;
         } else {
-            self->madctl_val &= ~LCD_CMD_ML_BIT;
+            self->madctl_val &= ~MADCTL_ML_BIT;
         }
     } else {
-        self->madctl_val &= ~LCD_CMD_ML_BIT;
+        self->madctl_val &= ~MADCTL_ML_BIT;
     }
     write_spi(
         self,
@@ -2965,7 +3080,7 @@ static const mp_rom_map_elem_t amoled_AMOLED_locals_dict_table[] = {
 	{ MP_ROM_QSTR(MP_QSTR_ttf_len),   		MP_ROM_PTR(&amoled_AMOLED_ttf_len_obj)         },	
     { MP_ROM_QSTR(MP_QSTR_mirror),          MP_ROM_PTR(&amoled_AMOLED_mirror_obj)          },
     { MP_ROM_QSTR(MP_QSTR_swap_xy),         MP_ROM_PTR(&amoled_AMOLED_swap_xy_obj)         },
-    { MP_ROM_QSTR(MP_QSTR_set_gap),         MP_ROM_PTR(&amoled_AMOLED_set_gap_obj)         },
+//    { MP_ROM_QSTR(MP_QSTR_set_gap),         MP_ROM_PTR(&amoled_AMOLED_set_gap_obj)         },
     { MP_ROM_QSTR(MP_QSTR_invert_color),    MP_ROM_PTR(&amoled_AMOLED_invert_color_obj)    },
     { MP_ROM_QSTR(MP_QSTR_disp_off),        MP_ROM_PTR(&amoled_AMOLED_disp_off_obj)        },
     { MP_ROM_QSTR(MP_QSTR_disp_on),         MP_ROM_PTR(&amoled_AMOLED_disp_on_obj)         },
@@ -2975,6 +3090,7 @@ static const mp_rom_map_elem_t amoled_AMOLED_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_height),          MP_ROM_PTR(&amoled_AMOLED_height_obj)          },
     { MP_ROM_QSTR(MP_QSTR_width),           MP_ROM_PTR(&amoled_AMOLED_width_obj)           },
     { MP_ROM_QSTR(MP_QSTR_rotation),        MP_ROM_PTR(&amoled_AMOLED_rotation_obj)        },
+    { MP_ROM_QSTR(MP_QSTR_tearing),         MP_ROM_PTR(&amoled_AMOLED_tearing_obj)        },	
     { MP_ROM_QSTR(MP_QSTR_vscroll_area),    MP_ROM_PTR(&amoled_AMOLED_vscroll_area_obj)    },
     { MP_ROM_QSTR(MP_QSTR_vscroll_start),   MP_ROM_PTR(&amoled_AMOLED_vscroll_start_obj)   },
     { MP_ROM_QSTR(MP_QSTR___del__),         MP_ROM_PTR(&amoled_AMOLED_deinit_obj)          },
