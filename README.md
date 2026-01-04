@@ -4,6 +4,7 @@
 
 --------------------------------------------------------------------------------------------------
 
+**Updated 04/01/2026 : ARTEFACTS GONE AWAY...**
 **Updated 30/11/2025 : NOW WORKS WITH TRUETYPE FONTS THANKS TO LIBSCHRIFT INTEGRATION**
 
 ![TTF](https://github.com/dobodu/Lilygo_Waveshare_Amoled_Micropython/blob/main/Images/ttf_thumb.jpg?raw=true)
@@ -161,8 +162,13 @@ TFT_HEIGHT = 450
 spi = SPI(SPI_PORT, baudrate = SPI_BAUD, sck=TFT_SCK, mosi=TFT_MOSI, miso=TFT_MISO, polarity=SPI_POLAR, phase=SPI_PHASE)
 panel = amoled.QSPIPanel(spi=spi, data=(TFT_D0, TFT_D1, TFT_D2, TFT_D3),
             dc=TFT_D1, cs=TFT_CS, pclk=SPI_BAUD, width=TFT_HEIGHT, height=TFT_WIDTH)
-display = amoled.AMOLED(panel, type=1, reset=TFT_RST, bpp=16, auto_refresh= True)
+display = amoled.AMOLED(panel, type=1, reset=TFT_RST, bpp=16, auto_refresh= True, bus_methode=0)
 ```
+Mandatory parameters are : panel and type,
+Optional parameters are : reset, bpp, auto_refresh, bus_methode
+especially bus_methode is a dev parameter since I try to improve (+15%) the display rendering but
+I face artefacts probably du to internal SPI/Cache of ESP32 behaviour (bus_methode=1 or 2...)
+
 Example for using GPIO extender for waveshare Amoled 1.8"
 
     import tca9554  # Extended GPIO
@@ -224,6 +230,11 @@ dir(amoled.AMOLED)
 - `rotation(value)`
 
   Rotate the display, value range: 0 - 3.
+
+- `tearing(tearing value, [scanline value])`
+
+  Set tearing control (0 = off, 1 = on).
+  Scanline value is optional (defaut = height of the display).
 
 - `brightness(value)`
 
@@ -425,6 +436,7 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
 
 
 
