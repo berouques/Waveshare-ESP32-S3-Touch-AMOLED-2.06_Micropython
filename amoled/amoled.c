@@ -99,6 +99,14 @@ static const amoled_rotation_t ORIENTATIONS_SH8601[4] = {
     { MADCTL_DEFAULT | MADCTL_MX_BIT, 	368, 448, 0, 0}
 };
 
+//CO5300 Under developpement
+static const amoled_rotation_t ORIENTATIONS_CO5300[4] = {
+    { MADCTL_DEFAULT,                                 466, 466, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MX_BIT,                 466, 466, 0, 0}, //Flipped X
+    { MADCTL_DEFAULT | MADCTL_MX_BIT |MADCTL_MY_BIT	  466, 466, 0, 0}, // 180°
+    { MADCTL_DEFAULT | MADCTL_MY_BIT,                 466, 466, 0, 0}  //Flipped 7
+};
+
 
 /* for each : fltr_col_rd, bitsw_col_rd, fltr_col_gr, bitsw_col_gr, fltr_col_bl
 16bpp = 2 bytes continuous 5 bits RED, 6 bits GREEN and 5 bits BLUE
@@ -106,6 +114,7 @@ static const amoled_rotation_t ORIENTATIONS_SH8601[4] = {
 24bpp = 3 bytes continuous 8bit/Bytes RBG
 Bit transmission is LSB first and MSB then !*/
 
+#Library for now only works with 16BPP
 static const bpp_process_t BPP_PROCESS_GEN[3] = {
     { 0xF800, 11, 0x07E0, 5, 0x001F},		//16bpp
     { 0x3F0000, 16, 0x003F00, 8, 0x00003F}, //18bpp
