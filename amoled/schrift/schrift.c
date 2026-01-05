@@ -322,17 +322,6 @@ failure:
  * if both s1 < MUL_NO_OVERFLOW and s2 < MUL_NO_OVERFLOW */
 #define MUL_NO_OVERFLOW	((size_t)1 << (sizeof(size_t) * 4))
 
-/* OpenBSD's reallocarray() standard libary function.
- * A wrapper for realloc() that takes two size args like calloc().
- * Useful because it eliminates common integer overflow bugs. */
-/*static void * reallocarray(void *optr, size_t nmemb, size_t size) {
-	if ((nmemb >= MUL_NO_OVERFLOW || size >= MUL_NO_OVERFLOW) &&
-	    nmemb > 0 && SIZE_MAX / nmemb < size) {
-		errno = ENOMEM;
-		return NULL;
-	}
-	return realloc(optr, size * nmemb);
-}*/
 
 /* TODO maybe we should use long here instead of int. */
 static inline int fast_floor(double x) {
@@ -418,15 +407,15 @@ static int init_outline(Outline *outl) {
 	/* TODO Smaller initial allocations */
 	outl->numPoints = 0;
 	outl->capPoints = 64;
-	if (!(outl->points = heap_caps_malloc(outl->capPoints * sizeof *outl->points, MALLOC_CAP_8BIT)))
+	if (!(outl->points = heap_caps_aligned_calloc(RAM_ALIGNMENT, outl->capPoints, sizeof *outl->points, MALLOC_CAP_8BIT)))
 		return -1;
 	outl->numCurves = 0;
 	outl->capCurves = 64;
-	if (!(outl->curves = heap_caps_malloc(outl->capCurves * sizeof *outl->curves, MALLOC_CAP_8BIT)))
+	if (!(outl->curves = heap_caps_aligned_calloc(RAM_ALIGNMENT, outl->capCurves, sizeof *outl->curves, MALLOC_CAP_8BIT)))
 		return -1;
 	outl->numLines = 0;
 	outl->capLines = 64;
-	if (!(outl->lines = heap_caps_malloc(outl->capLines * sizeof *outl->lines, MALLOC_CAP_8BIT)))
+	if (!(outl->lines = heap_caps_aligned_calloc(RAM_ALIGNMENT, outl->capLines, sizeof *outl->lines, MALLOC_CAP_8BIT)))
 		return -1;
 	return 0;
 }
@@ -445,7 +434,10 @@ static int grow_points(Outline *outl) {
 	if (outl->capPoints > UINT16_MAX / 2)
 		return -1;
 	cap = (uint16_t) (2U * outl->capPoints);
+	/*Before Ludo changes
 	if (!(mem = reallocarray(outl->points, cap, sizeof *outl->points)))
+		return -1;*/
+	if (!(mem = heap_caps_realloc(outl->points, cap * sizeof *outl->points, MALLOC_CAP_8BIT)))
 		return -1;
 	outl->capPoints = (uint16_t) cap;
 	outl->points    = mem;
@@ -459,7 +451,10 @@ static int grow_curves(Outline *outl) {
 	if (outl->capCurves > UINT16_MAX / 2)
 		return -1;
 	cap = (uint16_t) (2U * outl->capCurves);
+	/*Before Ludo changes
 	if (!(mem = reallocarray(outl->curves, cap, sizeof *outl->curves)))
+		return -1;*/
+	if (!(mem = heap_caps_realloc(outl->curves, cap * sizeof *outl->curves, MALLOC_CAP_8BIT)))
 		return -1;
 	outl->capCurves = (uint16_t) cap;
 	outl->curves    = mem;
@@ -473,7 +468,10 @@ static int grow_lines(Outline *outl) {
 	if (outl->capLines > UINT16_MAX / 2)
 		return -1;
 	cap = (uint16_t) (2U * outl->capLines);
+	/*Before Ludo changes
 	if (!(mem = reallocarray(outl->lines, cap, sizeof *outl->lines)))
+		return -1;*/
+	if (!(mem = heap_caps_realloc(outl->lines, cap * sizeof *outl->lines, MALLOC_CAP_8BIT)))
 		return -1;
 	outl->capLines = (uint16_t) cap;
 	outl->lines    = mem;
@@ -974,12 +972,12 @@ static int simple_outline(SFT_Font *font, uint32_t offset, unsigned int numConto
 			goto failure;
 	}
 	//Ludo before calloc
-	endPts = heap_caps_malloc(numContours * sizeof(uint16_t), MALLOC_CAP_8BIT);
+	endPts = heap_caps_aligned_calloc(RAM_ALIGNMENT, numContours, sizeof(uint16_t), MALLOC_CAP_8BIT);
 	//STACK_ALLOC(endPts, uint16_t, 16, numContours);
 	if (endPts == NULL)
 		goto failure;
 	//Ludo before calloc
-	flags = heap_caps_malloc(numPts * sizeof(uint8_t), MALLOC_CAP_8BIT);
+	flags = heap_caps_aligned_calloc(RAM_ALIGNMENT, numPts, sizeof(uint8_t), MALLOC_CAP_8BIT);
 	//STACK_ALLOC(flags, uint8_t, 128, numPts);
 	if (flags == NULL)
 		goto failure;
@@ -1292,7 +1290,7 @@ static int render_outline(Outline *outl, double transform[6], SFT_Image image) {
 	numPixels = (unsigned int) image.width * (unsigned int) image.height;
 
 	//Ludo before calloc
-	cells = heap_caps_malloc(numPixels * sizeof(Cell), MALLOC_CAP_8BIT);
+	cells = heap_caps_aligned_calloc(RAM_ALIGNMENT, numPixels, sizeof(Cell), MALLOC_CAP_8BIT);
 	//STACK_ALLOC(cells, Cell, 128 * 128, numPixels);
 	if (!cells) {
 		return -1;
