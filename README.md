@@ -129,6 +129,9 @@ Supported boards：
 | ESP32-S3  |  RM690B0   |    NO     |   YES     |    NO     |    NO     |
 | ESP32-S3  |  RM67162   |    NO     |   YES     |    NO     |    NO     |
 | ESP32-S3  |  SH8601    |    NO     |   YES     |    NO     |    NO     |
+| ESP32-S3  |  CO5300 *  |    NO     |   YES     |    NO     |    NO     |
+
+*very early support (not tested yet)
 
 Demonstration Video :
 - [Amoled Micropython Demo](https://www.youtube.com/watch?v=m3pqW5jGypQ)
@@ -437,6 +440,7 @@ Jump to section `APPEND IDF_COMPONENTS` and add `esp_lcd` to the list should fix
 
 # Note: 
 Scrolling does not work. Maybe using a framebuffer (provided by Micropython) to scroll will work.
+
 
 
 
