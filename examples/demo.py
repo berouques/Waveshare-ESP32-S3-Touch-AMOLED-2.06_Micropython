@@ -3,8 +3,9 @@ import random
 import utime
 import amoled
 import fonts.large as font
+import gc
 
-BOARD = "WS_180_AMOLED" #LG_191_AMOLED or LG_241_AMOLED or WS_180_AMOLED or WS_241_AMOLED
+BOARD = "WS_241_AMOLED" #LG_191_AMOLED or LG_241_AMOLED or WS_180_AMOLED or WS_241_AMOLED
 
 if BOARD == "LG_191_AMOLED" :
     from config.LG_191_AMOLED import *
@@ -55,11 +56,11 @@ def main():
                 ttf_write_ymax = row_max - ttf_write_height
                 
                 filled = random.randint(0,1)
-                kind = random.randint(0,5)
+                kind = random.randint(0,8)
                 
                 #For debug or test
-                kind = 7
-                #filled = 1
+                kind = 8
+                #filled = 0
                 
                 start_time = utime.ticks_ms()
 
@@ -68,7 +69,7 @@ def main():
                     ypos = random.randint(5, row_max-5)
                     length = random.randint(0, col_max - xpos) // 2
                     height = random.randint(0, row_max - ypos) // 2
-                    radius = random.randint(0, min(col_max - xpos, xpos, row_max - ypos, ypos )) // 2
+                    radius = random.randint(1, min(col_max - xpos-1, xpos, row_max - ypos-1, ypos )) // 2
                     radius_1 = random.randint(0, min(col_max - xpos, xpos)) // 2
                     radius_2 = random.randint(0, min(row_max - ypos, ypos)) // 2
                     angle = random.randint(0,628) / 100
@@ -82,78 +83,82 @@ def main():
                             random.getrandbits(8))
                     
                     if kind == 0 :
-                        kind_name = "Circl"
+                        kind_name = "Pixels    "
+                        display.pixel(xpos, ypos, color)
+                    
+                    if kind == 1 :
+                        kind_name = "Circles   "
                         if filled :
                             display.fill_circle(xpos,ypos,radius, color)
                         else :
                             display.circle(xpos, ypos, radius, color)
                             
-                    if kind == 1 :
-                        kind_name = "Ellipse"
-                        if filled :
-                            display.fill_ellipse(xpos,ypos,radius, radius_2, color)
-                        else :
-                            display.ellipse(xpos, ypos, radius, radius_2, color)
-                    
                     if kind == 2 :
-                        kind_name = "Recta"
+                        kind_name = "Ellipses   "
+                        if filled :
+                            display.fill_ellipse(xpos,ypos,radius_1, radius_2, color)
+                        else :
+                            display.ellipse(xpos, ypos, radius_1, radius_2, color)
+                    
+                    if kind == 3 :
+                        kind_name = "Rectangles "
                         if filled :
                             display.fill_rect(xpos,ypos,length, height, color)
                         else :
                             display.rect(xpos,ypos,length, height, color)
                     
-                    if kind == 3 :
-                        kind_name = "BRect"
+                    if kind == 4 :
+                        kind_name = "Bubble_Rect"
                         if filled :
                             display.fill_bubble_rect(xpos,ypos,length, height, color)
                         else :
                             display.bubble_rect(xpos,ypos,length, height, color)
                             
-                    if kind == 4 :
-                        kind_name = "Trian"
+                    if kind == 5 :  
+                        kind_name = "Triangles  "
                         if filled :
-                            display.fill_trian(random.randint(0, col_max), random.randint(0, row_max),
-                                           random.randint(0, col_max), random.randint(0, row_max),
-                                           random.randint(0, col_max), random.randint(0, row_max), color)
+                            display.fill_trian(xpos, ypos,
+                                           random.randint(xpos, col_max), random.randint(ypos, row_max),
+                                           random.randint(xpos, col_max), random.randint(ypos, row_max), color)
                         else :
-                            display.trian(random.randint(0, col_max), random.randint(0, row_max),
-                                           random.randint(0, col_max), random.randint(0, row_max),
-                                           random.randint(0, col_max), random.randint(0, row_max), color)
+                            display.trian(xpos, ypos,
+                                           random.randint(xpos, col_max), random.randint(ypos, row_max),
+                                           random.randint(xpos, col_max), random.randint(ypos, row_max), color)
                             
-                    if kind == 5 :
-                        kind_name = "BITfon"
+                    if kind == 6 :
+                        kind_name = "BMP_Fonts  "
                         if filled :
                             display.write(font,text, random.randint(10, write_xmax-10), random.randint(10, write_ymax-10), color,color2)
                         else :
                             display.write(font,text, random.randint(10, write_xmax-10), random.randint(10, write_ymax-10), color)
                             
-                    if kind == 6 :
-                        kind_name = "Poly"
+                    if kind == 7 :
+                        kind_name = "Polygons   "
                         if filled :
                             display.fill_polygon(POLYGON, random.randint(55, col_max-55), random.randint(55, row_max-55) , color, angle)
                         else :
                             display.polygon(POLYGON, random.randint(55, col_max-55), random.randint(55, row_max-55) , color, angle)
                             
-                    if kind == 7 :
-                        kind_name = "TTFfon"
+                    if kind == 8 :
+                        kind_name = "TTF_Fonts  "
                         if filled :
                             display.ttf_draw(fnt, text, random.randint(10, ttf_write_xmax-10), random.randint(10+ttf_write_height, ttf_write_ymax-10), color,color2)
                         else :
                             display.ttf_draw(fnt, text, random.randint(10, ttf_write_xmax-10), random.randint(10+ttf_write_height, ttf_write_ymax-10), color)
-
+                            
 
                 end_time = utime.ticks_ms()
                 fps = 1000*128/(end_time - start_time)
                 fps_txt = "Rot {:.0f}-{}-{:.0f}/s".format(rotation,kind_name,fps)
                 display.write(font,fps_txt, 0, 0, color)
-                print(rotation, kind, filled, fps) 
-                
-                utime.sleep(2)
+                print("Mem", gc.mem_free(), "\tRot", rotation, "\t", kind_name, "Filled" if(filled) else "\t", "\tFPS", round(fps)) 
+                utime.sleep(1)
                 
     except KeyboardInterrupt:
         pass
     
     fnt.deinit()
+    display.deinit()
        
 main()
 
