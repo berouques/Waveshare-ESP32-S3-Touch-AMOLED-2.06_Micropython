@@ -1,6 +1,6 @@
-firmware_2026_01_04.bin
+firmware_2026_01_05.bin
 
-/!\ Release Candidate 2 : Now hold TTF font + Bug correction 
+/!\ Release Candidate 3 : Now hold TTF font + Bug correction 
 
 MicroPython Version :  MicroPython v1.26.1
 ESP-IDF Version : 5.5.2
@@ -74,6 +74,7 @@ firmware_2024_12_23.bin
 MicroPython Version : v1.25.0
 ESP-IDF Version : 5.2.3
 BOARD : ESP32S3 microcontroller with 16MB of Flash & Octal-SPIRAM with ESP32S3
+
 
 
 
