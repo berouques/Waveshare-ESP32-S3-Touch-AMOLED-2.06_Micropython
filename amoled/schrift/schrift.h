@@ -27,6 +27,8 @@ extern "C" {
 
 #define SFT_DOWNWARD_Y 0x01
 
+#define RAM_ALIGNMENT (16)
+
 typedef struct _SFT				SFT;
 typedef struct _SFT_Font     	SFT_Font;
 typedef uint32_t 				SFT_UChar; /* Guaranteed to be compatible with char32_t. */
