@@ -1,32 +1,36 @@
-/* WAVESHARE and LILYGO AMOLED DRIVER FOR RM67162, RM690B0 and SH8601 
-
-By Dobodu on behalf of 
-
-RussHugues ST7789.mpy library
-https://github.com/russhughes/st7789_mpy
-
-Nspsck RM67162_Micropython_QSPI 
-https://github.com/nspsck/RM67162_Micropython_QSPI
-
-Xinyuan-LilyGO LilyGo-AMOLED-Series
-https://github.com/Xinyuan-LilyGO/LilyGo-AMOLED-Series
-
-Thomas Oltmann Libschrift TTF library
-https://github.com/tomolt/libschrift
-
-This micropython C library is a standalone graphic library for
-
-Lilygo T-Display S3 Amoled 1.91"
-Lilygo T4-S3 Amoled 2.4"
-Waveshare ESP32-S3 Touch Amoled 1.8"
-Waveshare ESP32-S3 Touch Amoled 2.41"
-
-License if public
-
-Known limitations
-
-A major part of the code works for 16bpp colorset, event some other are already ok for 18 & 24bpp
-*/
+/**
+ * @brief Драйвер AMOLED для WAVESHARE и LILYGO с поддержкой RM67162, RM690B0 и SH8601
+ *
+ * @author Dobodu avec Le Berouque от имени
+ *
+ * @see RussHugues ST7789.mpy library
+ * @see https://github.com/russhughes/st7789_mpy
+ *
+ * @see Nspsck RM67162_Micropython_QSPI
+ * @see https://github.com/nspsck/RM67162_Micropython_QSPI
+ *
+ * @see Xinyuan-LilyGO LilyGo-AMOLED-Series
+ * @see https://github.com/Xinyuan-LilyGO/LilyGo-AMOLED-Series
+ *
+ * @see Thomas Oltmann Libschrift TTF library
+ * @see https://github.com/tomolt/libschrift
+ * 
+ * @see Waveshare ESP32-S3-Touch-AMOLED-2.06
+ * @see https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.06
+ * @see https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-2.06
+ *
+ * @details Эта библиотека MicroPython C является автономной графической библиотекой для:
+ * - Lilygo T4-S3 Amoled 2.4" (450x600, RM690B0)
+ * - Lilygo T-Display S3 Amoled 1.91" (240x536, RM67162)
+ * - Waveshare ESP32-S3 Touch Amoled 1.8" (368x448, SH8601)
+ * - Waveshare ESP32-S3 Touch Amoled 2.41" (466x466, CO5300)
+ * - Waveshare ESP32-S3 Touch AMOLED 2.06" (410x502, CO5300)
+ *
+ * @note Лицензия, если публичная
+ *
+ * @warning Известные ограничения
+ * - Основная часть кода работает для 16bpp цветов, некоторые части уже поддерживают 18 и 24bpp
+ */
 
 #include "amoled.h"
 #include "amoled_qspi_bus.h"
@@ -78,33 +82,46 @@ const char* color_space_desc[] = {
 */
 
 // Rotation Matrix { madctl, width, height, colstart, rowstart }
-static const amoled_rotation_t ORIENTATIONS_RM690B0[4] = {
+
+
+// Lilygo T4-S3 Amoled 2.4" (450x600, RM690B0)
+static const amoled_rotation_t ORIENTATIONS_LILYGO_T4_S3_2_4_RM690B0[4] = {
     { MADCTL_DEFAULT,									450, 600, 16, 0},
     { MADCTL_DEFAULT | MADCTL_MX_BIT | MADCTL_MV_BIT,	600, 450, 0, 16}, // Column decrease + Row-Col exchange
     { MADCTL_DEFAULT | MADCTL_MX_BIT | MADCTL_MY_BIT,	450, 600, 16, 0}, // Column decrease + Row decrease
     { MADCTL_DEFAULT | MADCTL_MV_BIT | MADCTL_MY_BIT,	600, 450, 0, 16}  // Row decrease + Row-Col exchange
 };
 
-static const amoled_rotation_t ORIENTATIONS_RM67162[4] = {
+// Lilygo T-Display S3 Amoled 1.91" (240x536, RM67162)
+static const amoled_rotation_t ORIENTATIONS_LILYGO_TDISPLAY_S3_1_91_RM67162[4] = {
     { MADCTL_DEFAULT,									240, 536, 0, 0},
     { MADCTL_DEFAULT | MADCTL_MX_BIT | MADCTL_MV_BIT, 	536, 240, 0, 0},
     { MADCTL_DEFAULT | MADCTL_MX_BIT | MADCTL_MY_BIT, 	240, 536, 0, 0},
     { MADCTL_DEFAULT | MADCTL_MV_BIT | MADCTL_MY_BIT, 	536, 240, 0, 0}
 };
 
-static const amoled_rotation_t ORIENTATIONS_SH8601[4] = {
+// Waveshare ESP32-S3 Touch Amoled 1.8" (368x448, SH8601)
+static const amoled_rotation_t ORIENTATIONS_WAVESHARE_ESP32_S3_TOUCH_1_8_SH8601[4] = {
     { MADCTL_DEFAULT,					368, 448, 0, 0},
     { MADCTL_DEFAULT | MADCTL_MX_BIT, 	368, 448, 0, 0}, //Flipped
     { MADCTL_DEFAULT, 					368, 448, 0, 0},
     { MADCTL_DEFAULT | MADCTL_MX_BIT, 	368, 448, 0, 0}
 };
 
-//CO5300 Under developpement
-static const amoled_rotation_t ORIENTATIONS_CO5300[4] = {
+// UNDER DEVELOPMENT: Waveshare ESP32-S3 Touch Amoled 2.41" (466x466, CO5300)
+static const amoled_rotation_t ORIENTATIONS_WAVESHARE_ESP32_S3_TOUCH_2_41_CO5300[4] = {
     { MADCTL_DEFAULT,                                 466, 466, 0, 0},
     { MADCTL_DEFAULT | MADCTL_MX_BIT,                 466, 466, 0, 0}, //Flipped X
     { MADCTL_DEFAULT | MADCTL_MX_BIT |MADCTL_MY_BIT	  466, 466, 0, 0}, // 180°
     { MADCTL_DEFAULT | MADCTL_MY_BIT,                 466, 466, 0, 0}  //Flipped 7
+};
+
+// UNDER DEVELOPMENT: Waveshare ESP32-S3-Touch-AMOLED-2.06 (410x502, CO5300)
+static const amoled_rotation_t ORIENTATIONS_WAVESHARE_ESP32_S3_TOUCH_2_06_CO5300[4] = {
+    { MADCTL_DEFAULT,                                 410, 502, 0, 0},
+    { MADCTL_DEFAULT | MADCTL_MX_BIT | MADCTL_MV_BIT, 502, 410, 0, 0}, // Column decrease + Row-Col exchange
+    { MADCTL_DEFAULT | MADCTL_MX_BIT | MADCTL_MY_BIT, 410, 502, 0, 0}, // Column decrease + Row decrease
+    { MADCTL_DEFAULT | MADCTL_MV_BIT | MADCTL_MY_BIT, 502, 410, 0, 0}  // Row decrease + Row-Col exchange
 };
 
 
@@ -114,7 +131,7 @@ static const amoled_rotation_t ORIENTATIONS_CO5300[4] = {
 24bpp = 3 bytes continuous 8bit/Bytes RBG
 Bit transmission is LSB first and MSB then !*/
 
-#Library for now only works with 16BPP
+// Library for now only works with 16BPP
 static const bpp_process_t BPP_PROCESS_GEN[3] = {
     { 0xF800, 11, 0x07E0, 5, 0x001F},		//16bpp
     { 0x3F0000, 16, 0x003F00, 8, 0x00003F}, //18bpp
@@ -235,7 +252,7 @@ static mp_obj_t amoled_AMOLED_reset(mp_obj_t self_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(amoled_AMOLED_reset_obj, amoled_AMOLED_reset);
 
 
-//Init function for RM67162, RM690B0 and SH8601
+//Init function for RM67162, RM690B0, SH8601, CO5300 and WS_206
 static mp_obj_t amoled_AMOLED_init(mp_obj_t self_in) {
     amoled_AMOLED_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
@@ -245,7 +262,7 @@ static mp_obj_t amoled_AMOLED_init(mp_obj_t self_in) {
 	
 	//Setup Specific
 	switch (self->type) {
-        case 0:	//RM67162
+        case 0:	//Lilygo T-Display S3 1.91" (RM67162, 240x536)
 			//Hardware setup
 			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x05}, 1);      // 0x05 SWITCH TO MANUFACTURING PAGE 4 COMMAND
 			write_spi(self, LCD_FAC_OVSSCONTROL, (uint8_t[]) {0x05}, 1);     // OVSS control set elvss -3.95v
@@ -256,7 +273,7 @@ static mp_obj_t amoled_AMOLED_init(mp_obj_t self_in) {
 			//Add SETSPIMODE ? SETDISPMODE ?
 			write_spi(self, LCD_CMD_SETTSCANL, (uint8_t[]) {0x02, 0x58}, 2); // SET TEAR SCANLINE TO N = 0x0258 = 600
         break;
-        case 1: //RM690B0
+        case 1: //Lilygo T4-S3 2.4" (RM690B0, 450x600)
 			//Hardware setup
 			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x20}, 1);      // 0x20 SWITCH TO MANUFACTURING PANEL COMMAND
 			write_spi(self, LCD_FAC_MIPI,(uint8_t[]) {0x0A}, 1);             // MIPI OFF
@@ -270,7 +287,7 @@ static mp_obj_t amoled_AMOLED_init(mp_obj_t self_in) {
 			mp_hal_delay_ms(10);
 			write_spi(self, LCD_CMD_SETTSCANL, (uint8_t[]) {0x02, 0x18}, 2); // SET TEAR SCANLINE TO N = 0x218 = 536
 		 break;
-		 case 2: //SH8601
+		 case 2: //Waveshare ESP32-S3 Touch 1.8" (SH8601, 368x448)
 			//Hardware setup
 			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x20}, 1);      //Switch to Cde HBM mode
 			write_spi(self, 0x63, (uint8_t[]) {0xFF}, 1);                    // ? Write brightness HBM
@@ -284,8 +301,34 @@ static mp_obj_t amoled_AMOLED_init(mp_obj_t self_in) {
 			write_spi(self, LCD_CMD_WRCTRLD1, (uint8_t[]) {0x20}, 1);        // Set Brightness control ON to Display 1
 			write_spi(self, LCD_CMD_SETTSCANL, (uint8_t[]) {0x01, 0xC0}, 2); // SET TEAR SCANLINE TO N = 0x01C0 = 448
 		break;
+		case 3: //Waveshare ESP32-S3 Touch 2.41" (CO5300, 466x466)
+			//Hardware setup (placeholder, based on RM690B0)
+			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x20}, 1);      // 0x20 SWITCH TO MANUFACTURING PANEL COMMAND
+			write_spi(self, LCD_FAC_MIPI,(uint8_t[]) {0x0A}, 1);             // MIPI OFF
+			write_spi(self, LCD_FAC_SPI,(uint8_t[]) {0x80}, 1);              // SPI Write ram
+			write_spi(self, LCD_FAC_SWIRE1,(uint8_t[]) {0x51}, 1);           // ! 230918:SWIRE FOR BV6804
+			write_spi(self, LCD_FAC_SWIRE2,(uint8_t[]) {0x2E}, 1);           // ! 230918:SWIRE FOR BV6804
+			//Back to Normal setup
+			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x00}, 1);      // 0x00 SWITCH TO USER COMMAND
+			write_spi(self, LCD_CMD_SETDISPMODE, (uint8_t[]) {0x00}, 1);     // Set DSI Mode to 0x00 = Internal Timmings
+			mp_hal_delay_ms(10);
+			write_spi(self, LCD_CMD_SETTSCANL, (uint8_t[]) {0x01, 0xF6}, 2); // SET TEAR SCANLINE TO N = 0x1F6 = 502 (for 410x502)
+		break;
+		case 4: //Waveshare ESP32-S3 Touch 2.06" (CO5300, 410x502)
+			//Hardware setup (same as CO5300)
+			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x20}, 1);      // 0x20 SWITCH TO MANUFACTURING PANEL COMMAND
+			write_spi(self, LCD_FAC_MIPI,(uint8_t[]) {0x0A}, 1);             // MIPI OFF
+			write_spi(self, LCD_FAC_SPI,(uint8_t[]) {0x80}, 1);              // SPI Write ram
+			write_spi(self, LCD_FAC_SWIRE1,(uint8_t[]) {0x51}, 1);           // ! 230918:SWIRE FOR BV6804
+			write_spi(self, LCD_FAC_SWIRE2,(uint8_t[]) {0x2E}, 1);           // ! 230918:SWIRE FOR BV6804
+			//Back to Normal setup
+			write_spi(self, LCD_CMD_SWITCHMODE, (uint8_t[]) {0x00}, 1);      // 0x00 SWITCH TO USER COMMAND
+			write_spi(self, LCD_CMD_SETDISPMODE, (uint8_t[]) {0x00}, 1);     // Set DSI Mode to 0x00 = Internal Timmings
+			mp_hal_delay_ms(10);
+			write_spi(self, LCD_CMD_SETTSCANL, (uint8_t[]) {0x01, 0xF6}, 2); // SET TEAR SCANLINE TO N = 0x1F6 = 502 (for 410x502)
+		break;
 	}
-		
+
 	//Setup Common Final
 	
 	//Finish and Enlight display
@@ -351,7 +394,12 @@ mp_obj_t amoled_AMOLED_make_new(const mp_obj_type_t *type, size_t n_args, size_t
     self->lcd_panel_p = (amoled_panel_p_t *)self->bus_obj->type->protocol;
 #endif
 
-	//Display type 0 = TDisplay S3 RM61672 / 1 = T4-S3 RM690B0 / 2 = WAVESHARE SH8601
+	//Display type:
+	//  0 = Lilygo T-Display S3 1.91" (RM67162, 240x536)
+	//  1 = Lilygo T4-S3 2.4" (RM690B0, 450x600)
+	//  2 = Waveshare ESP32-S3 Touch 1.8" (SH8601, 368x448)
+	//  3 = Waveshare ESP32-S3 Touch 2.41" (CO5300, 466x466)
+	//  4 = Waveshare ESP32-S3 Touch 2.06" (CO5300, 410x502)
 	self->type = args[ARG_type].u_int;
 
 	//Get other arguments
@@ -418,14 +466,20 @@ mp_obj_t amoled_AMOLED_make_new(const mp_obj_type_t *type, size_t n_args, size_t
     bzero(&self->rotations, sizeof(self->rotations));
 	switch (self->type) {
         case 0:
-            memcpy(&self->rotations, ORIENTATIONS_RM67162, sizeof(ORIENTATIONS_RM67162));
+            memcpy(&self->rotations, ORIENTATIONS_LILYGO_TDISPLAY_S3_1_91_RM67162, sizeof(ORIENTATIONS_LILYGO_TDISPLAY_S3_1_91_RM67162));
         break;
         case 1:
-            memcpy(&self->rotations, ORIENTATIONS_RM690B0, sizeof(ORIENTATIONS_RM690B0));
+            memcpy(&self->rotations, ORIENTATIONS_LILYGO_T4_S3_2_4_RM690B0, sizeof(ORIENTATIONS_LILYGO_T4_S3_2_4_RM690B0));
         break;
 		case 2:
-            memcpy(&self->rotations, ORIENTATIONS_SH8601, sizeof(ORIENTATIONS_SH8601));
-        break;			
+            memcpy(&self->rotations, ORIENTATIONS_WAVESHARE_ESP32_S3_TOUCH_1_8_SH8601, sizeof(ORIENTATIONS_WAVESHARE_ESP32_S3_TOUCH_1_8_SH8601));
+        break;
+		case 3:
+            memcpy(&self->rotations, ORIENTATIONS_WAVESHARE_ESP32_S3_TOUCH_2_41_CO5300, sizeof(ORIENTATIONS_WAVESHARE_ESP32_S3_TOUCH_2_41_CO5300));
+        break;
+		case 4:
+            memcpy(&self->rotations, ORIENTATIONS_WAVESHARE_ESP32_S3_TOUCH_2_06_CO5300, sizeof(ORIENTATIONS_WAVESHARE_ESP32_S3_TOUCH_2_06_CO5300));
+        break;
 		default:
             mp_raise_ValueError(MP_ERROR_TEXT("Unsupported display type"));
         break;
