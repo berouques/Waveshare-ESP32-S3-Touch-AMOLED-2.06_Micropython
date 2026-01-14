@@ -112,7 +112,7 @@ static const amoled_rotation_t ORIENTATIONS_WAVESHARE_ESP32_S3_TOUCH_1_8_SH8601[
 static const amoled_rotation_t ORIENTATIONS_WAVESHARE_ESP32_S3_TOUCH_2_41_CO5300[4] = {
     { MADCTL_DEFAULT,                                 466, 466, 0, 0},
     { MADCTL_DEFAULT | MADCTL_MX_BIT,                 466, 466, 0, 0}, //Flipped X
-    { MADCTL_DEFAULT | MADCTL_MX_BIT |MADCTL_MY_BIT	  466, 466, 0, 0}, // 180°
+    { MADCTL_DEFAULT | MADCTL_MX_BIT |MADCTL_MY_BIT,  466, 466, 0, 0}, // 180°
     { MADCTL_DEFAULT | MADCTL_MY_BIT,                 466, 466, 0, 0}  //Flipped 7
 };
 
