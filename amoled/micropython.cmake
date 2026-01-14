@@ -7,12 +7,14 @@ target_sources(usermod_amoled INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/amoled_qspi_bus.c
     ${CMAKE_CURRENT_LIST_DIR}/mpfile/mpfile.c
     ${CMAKE_CURRENT_LIST_DIR}/jpg/tjpgd565.c
+    ${CMAKE_CURRENT_LIST_DIR}/schrift/schrift.c
     )
 
 # Add the current directory as an include directory.
 target_include_directories(usermod_amoled INTERFACE
     ${IDF_PATH}/components/esp_lcd/include/
     ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/schrift
     )
 
 # Link our INTERFACE library to the usermod target.
